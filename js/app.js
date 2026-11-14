@@ -1,7 +1,7 @@
 import { api } from './api.js';
 import { columns, line } from './charts.js';
 
-export const VERSIONE = '1.1';
+export const VERSIONE = '1.2';
 export const DATA_VERSIONE = '14/11/2026';
 
 // ------------------------------------------------------------------ stato
@@ -184,6 +184,13 @@ function voceOptions(tipo, sel) {
   }).join('');
 }
 
+// Movimenti dello stesso mese con lo stesso importo e la stessa voce (o la stessa descrizione)
+function possibiliDoppioni({ id, data, voce_id, importo, descrizione }) {
+  const mese = data.slice(0, 7), desc = (descrizione || '').trim().toLowerCase(), tipo = voce(voce_id)?.tipo;
+  return S.movimenti.filter(m => m.id !== id && m.data.slice(0, 7) === mese && Math.abs(m.importo - importo) < 0.005
+    && (m.voce_id === voce_id || (desc && (m.descrizione || '').trim().toLowerCase() === desc && tipoMov(m) === tipo)));
+}
+
 function renderNuovo(v, params) {
   const edit = params.id ? S.movimenti.find(m => String(m.id) === params.id) : null;
   if (params.id && !edit) { v.innerHTML = `<p class="muted">Movimento non trovato.</p>`; return; }
@@ -217,6 +224,7 @@ function renderNuovo(v, params) {
       <div class="field"><span class="lbl">Pagamento</span><div class="chips" id="metodo"></div></div>
       <details ${edit?.note ? 'open' : ''}><summary>Note</summary><textarea id="note" rows="2">${esc(edit?.note || '')}</textarea></details>
       <p class="err" id="ferr"></p>
+      <div id="dup"></div>
       <div class="actions">
         <button class="primary" type="submit">${edit ? 'Salva modifiche' : 'Salva'}</button>
         ${edit ? '<button type="button" class="danger" id="del">Elimina</button><button type="button" id="cancel">Annulla</button>' : ''}
@@ -259,6 +267,20 @@ function renderNuovo(v, params) {
       const err = !isFinite(importo) || importo === 0 ? 'Inserisci un importo valido' : !st.voce_id ? 'Scegli una voce' : !$('#data').value ? 'Inserisci la data' : '';
       $('#ferr').textContent = err;
       if (err) return;
+      // possibile doppione nello stesso mese
+      const dups = possibiliDoppioni({ id: edit?.id, data: $('#data').value, voce_id: st.voce_id, importo, descrizione: $('#desc').value });
+      const firma = dups.map(d => d.id).join(',') + '|' + importo + '|' + st.voce_id + '|' + $('#data').value.slice(0, 7);
+      if (dups.length && st.dupOk !== firma) {
+        $('#dup').innerHTML = `<div class="dupbox"><b>⚠️ Forse l'hai già inserita</b>
+          <p>Nello stesso mese ${dups.length === 1 ? 'c\'è già un movimento simile' : `ci sono già ${dups.length} movimenti simili`}:</p>
+          ${movList(dups, false)}
+          <div class="actions"><button type="button" class="primary" id="dupYes">Salva comunque</button><button type="button" id="dupNo">Non salvare</button></div></div>`;
+        $('#dupYes').onclick = () => { st.dupOk = firma; $('#mf').requestSubmit(); };
+        $('#dupNo').onclick = () => { $('#dup').innerHTML = ''; };
+        $('#dup').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      $('#dup').innerHTML = ''; st.dupOk = null;
       const row = {
         data: $('#data').value, voce_id: st.voce_id, importo, descrizione: $('#desc').value.trim() || null,
         metodo: st.metodo || null, note: $('#note').value.trim() || null,
