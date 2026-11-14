@@ -1,12 +1,15 @@
 import { api } from './api.js';
 import { columns, line } from './charts.js';
 
+export const VERSIONE = '1.1';
+export const DATA_VERSIONE = '14/11/2026';
+
 // ------------------------------------------------------------------ stato
 const S = { macro: [], voci: [], metodi: [], membri: [], movimenti: [], preventivi: [], conti: [], saldi: [] };
 const TODAY = new Date();
 const UI = {
   anno: TODAY.getFullYear(),
-  f: { anno: String(TODAY.getFullYear()), mese: '', tipo: '', voce: '', macro: '', metodo: '', chi: '', q: '' },
+  f: { anno: String(TODAY.getFullYear()), mese: '', tipo: '', voce: '', macro: '', metodo: '', q: '' },
   limit: 150, confronto: 'periodo', trendVoce: '', soloRischio: false, tipo: 'U',
 };
 const COL = { E: '#1baf7a', U: '#eb6834', prev: '#b4b2a9', accent: '#2a78d6', warn: '#eda100', bad: '#e34948' };
@@ -189,7 +192,6 @@ function renderNuovo(v, params) {
     tipo: edit ? tipoMov(edit) : UI.tipo,
     voce_id: edit?.voce_id || null,
     metodo: edit ? edit.metodo : (last.metodo || 'Bancomat'),
-    chi: edit ? edit.chi : (last.chi || me()),
     data: edit?.data || todayISO(),
   };
   v.innerHTML = `
@@ -213,7 +215,6 @@ function renderNuovo(v, params) {
         <div class="field"><span class="lbl">&nbsp;</span><div class="chips"><button type="button" class="chip" data-d="0">Oggi</button><button type="button" class="chip" data-d="1">Ieri</button></div></div>
       </div>
       <div class="field"><span class="lbl">Pagamento</span><div class="chips" id="metodo"></div></div>
-      <div class="field"><span class="lbl">Chi</span><div class="chips" id="chi"></div></div>
       <details ${edit?.note ? 'open' : ''}><summary>Note</summary><textarea id="note" rows="2">${esc(edit?.note || '')}</textarea></details>
       <p class="err" id="ferr"></p>
       <div class="actions">
@@ -235,8 +236,6 @@ function renderNuovo(v, params) {
     $('#descList').innerHTML = descs.map(d => `<option value="${esc(d)}">`).join('');
     const metodi = S.metodi.filter(m => m.attivo || m.nome === st.metodo).map(m => m.nome);
     $('#metodo').innerHTML = metodi.map(m => `<button type="button" class="chip ${m === st.metodo ? 'on' : ''}" data-m="${esc(m)}">${esc(m)}</button>`).join('');
-    $('#chi').innerHTML = S.membri.map(m => `<button type="button" class="chip ${m.nome === st.chi ? 'on' : ''}" data-c="${esc(m.nome)}">${esc(m.nome)}</button>`).join('')
-      + `<button type="button" class="chip ${!st.chi ? 'on' : ''}" data-c="">Famiglia</button>`;
     $$('[data-d]').forEach(b => b.classList.toggle('on', $('#data').value === iso(new Date(Date.now() - b.dataset.d * 864e5))));
   };
   paint();
@@ -245,7 +244,6 @@ function renderNuovo(v, params) {
   $('#freq').onclick = e => { const id = +e.target.dataset.v; if (id) { st.voce_id = id; paint(); } };
   $('#voce').onchange = e => { st.voce_id = +e.target.value || null; paint(); };
   $('#metodo').onclick = e => { if (e.target.dataset.m !== undefined) { st.metodo = e.target.dataset.m; paint(); } };
-  $('#chi').onclick = e => { if (e.target.dataset.c !== undefined) { st.chi = e.target.dataset.c; paint(); } };
   $$('[data-d]').forEach(b => b.onclick = () => { $('#data').value = iso(new Date(Date.now() - b.dataset.d * 864e5)); paint(); });
   $('#data').onchange = paint;
   $('#imp').oninput = () => {
@@ -263,7 +261,7 @@ function renderNuovo(v, params) {
       if (err) return;
       const row = {
         data: $('#data').value, voce_id: st.voce_id, importo, descrizione: $('#desc').value.trim() || null,
-        metodo: st.metodo || null, chi: st.chi || null, note: $('#note').value.trim() || null,
+        metodo: st.metodo || null, note: $('#note').value.trim() || null,
       };
       const btn = $('#mf button[type=submit]'); btn.disabled = true;
       try {
@@ -274,7 +272,7 @@ function renderNuovo(v, params) {
         } else {
           const [r] = await api.insert('movimenti', [row]);
           S.movimenti.push(r); index();
-          store.set('last', { metodo: st.metodo, chi: st.chi });
+          store.set('last', { metodo: st.metodo });
           toast(`Salvato · ${esc(voce(st.voce_id).nome)} ${eur(importo)}`, {
             label: 'Annulla', fn: () => guard(async () => { await api.remove('movimenti', { id: r.id }); S.movimenti = S.movimenti.filter(m => m.id !== r.id); toast('Annullato'); route(); }),
           });
@@ -303,7 +301,7 @@ function renderNuovo(v, params) {
 
 function movRow(m) {
   const v = voce(m.voce_id), t = v?.tipo || 'U';
-  const sub = [m.descrizione, m.metodo, m.chi].filter(Boolean).map(esc).join(' · ');
+  const sub = [m.descrizione, m.metodo].filter(Boolean).map(esc).join(' · ');
   return `<a class="mov" href="#nuovo?id=${m.id}">
     <div class="mv-main"><div class="mv-voce">${esc(v?.nome || '?')}</div><div class="mv-sub">${sub}${m.note ? ' · <i>' + esc(m.note) + '</i>' : ''}</div></div>
     <div class="mv-amt ${t}">${t === 'E' ? '+' : '−'}${eur(m.importo)}</div></a>`;
@@ -334,7 +332,6 @@ function filtra(f) {
     if (f.voce && String(m.voce_id) !== f.voce) return false;
     if (f.macro && v?.macro !== f.macro) return false;
     if (f.metodo && m.metodo !== f.metodo) return false;
-    if (f.chi && (m.chi || '') !== f.chi) return false;
     if (q && !`${m.descrizione || ''} ${m.note || ''} ${v?.nome || ''} ${String(m.importo).replace('.', ',')}`.toLowerCase().includes(q)) return false;
     return true;
   });
@@ -353,7 +350,6 @@ function renderMovimenti(v, params) {
         <select data-k="macro">${opt(S.macro.map(m => [m.codice, m.nome]), f.macro, 'Tutte le categorie')}</select>
         <select data-k="voce">${opt(S.voci.map(x => [x.id, x.nome + (x.attiva ? '' : ' (non più usata)')]), f.voce, 'Tutte le voci')}</select>
         <select data-k="metodo">${opt([...new Set(S.movimenti.map(m => m.metodo).filter(Boolean))].sort().map(m => [m, m]), f.metodo, 'Tutti i pagamenti')}</select>
-        <select data-k="chi">${opt(S.membri.map(m => [m.nome, m.nome]), f.chi, 'Tutti')}</select>
         <button id="reset" type="button">Azzera filtri</button>
       </div>
     </section>
@@ -371,21 +367,72 @@ function renderMovimenti(v, params) {
   };
   $$('.filters select').forEach(s => s.onchange = () => { f[s.dataset.k] = s.value; UI.limit = 150; draw(); });
   let t; $('#q').oninput = e => { clearTimeout(t); t = setTimeout(() => { f.q = e.target.value; UI.limit = 150; draw(); }, 200); };
-  $('#reset').onclick = () => { Object.assign(f, { anno: String(TODAY.getFullYear()), mese: '', tipo: '', voce: '', macro: '', metodo: '', chi: '', q: '' }); renderMovimenti(v, {}); };
+  $('#reset').onclick = () => { Object.assign(f, { anno: String(TODAY.getFullYear()), mese: '', tipo: '', voce: '', macro: '', metodo: '', q: '' }); renderMovimenti(v, {}); };
   draw();
 }
 
 function exportCSV(rows, name) {
-  const head = ['Data', 'Anno', 'Mese', 'Tipo', 'Categoria', 'Voce', 'Descrizione', 'Importo', 'Pagamento', 'Chi', 'Note'];
+  const head = ['Data', 'Anno', 'Mese', 'Tipo', 'Categoria', 'Voce', 'Descrizione', 'Importo', 'Pagamento', 'Note'];
   const q = s => `"${String(s ?? '').replace(/"/g, '""')}"`;
   const lines = rows.map(m => {
     const v = voce(m.voce_id);
-    return [m.data, m.data.slice(0, 4), +m.data.slice(5, 7), v?.tipo === 'E' ? 'Entrata' : 'Uscita', macroNome(v?.macro), v?.nome, m.descrizione, String(m.importo).replace('.', ','), m.metodo, m.chi, m.note].map(q).join(';');
+    return [m.data, m.data.slice(0, 4), +m.data.slice(5, 7), v?.tipo === 'E' ? 'Entrata' : 'Uscita', macroNome(v?.macro), v?.nome, m.descrizione, String(m.importo).replace('.', ','), m.metodo, m.note].map(q).join(';');
   });
   const blob = new Blob(['﻿' + [head.join(';'), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = `${name}_${todayISO()}.csv`; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// ------------------------------------------------------------------ PERIODI (grafici comandabili)
+const GRAN = [['M', 'Mese'], ['T', 'Trimestre'], ['S', 'Semestre'], ['A', 'Anno'], ['B', 'Biennio']];
+const ym = d => d.slice(0, 7);
+const addMonths = (s, n) => { let [y, m] = s.split('-').map(Number); m += n; y += Math.floor((m - 1) / 12); m = ((m - 1) % 12 + 12) % 12 + 1; return `${y}-${String(m).padStart(2, '0')}`; };
+const lastDay = s => { const [y, m] = s.split('-').map(Number); return `${s}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`; };
+function buckets(from, to, g) {
+  const size = { M: 1, T: 3, S: 6, A: 12, B: 24 }[g];
+  let [y, m] = from.split('-').map(Number);
+  if (g !== 'M') m = Math.floor((m - 1) / (g === 'B' ? 12 : size)) * (g === 'B' ? 12 : size) + 1;
+  let cur = `${y}-${String(m).padStart(2, '0')}`;
+  const out = [];
+  while (cur <= to && out.length < 400) {
+    const end = addMonths(cur, size - 1);
+    const [cy, cm] = cur.split('-').map(Number);
+    const yy = String(cy).slice(2);
+    const label = { M: `${MESI[cm - 1]} ${yy}`, T: `T${Math.ceil(cm / 3)} ${yy}`, S: `S${cm <= 6 ? 1 : 2} ${yy}`, A: String(cy), B: `${cy}–${String(cy + 1).slice(2)}` }[g];
+    const long = { M: `${MESI_L[cm - 1]} ${cy}`, T: `${Math.ceil(cm / 3)}° trimestre ${cy}`, S: `${cm <= 6 ? 1 : 2}° semestre ${cy}`, A: `anno ${cy}`, B: `biennio ${cy}–${cy + 1}` }[g];
+    out.push({ label, long, start: `${cur}-01`, end: lastDay(end) });
+    cur = addMonths(cur, size);
+  }
+  return out;
+}
+function periodState(key, def) {
+  UI[key] ||= store.get(key, def);
+  return UI[key];
+}
+function periodControls(host, key, bounds, onChange) {
+  const st = UI[key];
+  const today = ym(todayISO());
+  const quick = [['12m', 'Ultimi 12 mesi', addMonths(today, -11)], ['24m', 'Ultimi 2 anni', addMonths(today, -23)], ['60m', 'Ultimi 5 anni', addMonths(today, -59)], ['all', 'Tutto', bounds.min]];
+  host.innerHTML = `<div class="pctl">
+    <div class="seg small">${GRAN.map(([k, l]) => `<button type="button" data-g="${k}" class="${st.g === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="chips">${quick.map(([k, l]) => `<button type="button" class="chip ${st.q === k ? 'on' : ''}" data-q="${k}">${l}</button>`).join('')}</div>
+    <div class="pdates"><label>Dal<input type="month" data-f value="${st.from}" min="${bounds.min}" max="${today}"></label>
+      <label>Al<input type="month" data-t value="${st.to}" min="${bounds.min}" max="${today}"></label></div></div>`;
+  const fire = () => { store.set(key, st); periodControls(host, key, bounds, onChange); onChange(); };
+  host.querySelectorAll('[data-g]').forEach(b => b.onclick = () => { st.g = b.dataset.g; fire(); });
+  host.querySelectorAll('[data-q]').forEach(b => b.onclick = () => {
+    const q = quick.find(x => x[0] === b.dataset.q); st.q = q[0]; st.from = q[2] < bounds.min ? bounds.min : q[2]; st.to = today; fire();
+  });
+  host.querySelector('[data-f]').onchange = e => { if (e.target.value) { st.from = e.target.value; st.q = ''; if (st.from > st.to) st.to = st.from; fire(); } };
+  host.querySelector('[data-t]').onchange = e => { if (e.target.value) { st.to = e.target.value; st.q = ''; if (st.to < st.from) st.from = st.to; fire(); } };
+}
+function periodRange(key) {
+  // l'intervallo "rapido" si aggiorna al mese corrente
+  const st = UI[key], today = ym(todayISO());
+  if (st.q === '12m') st.from = addMonths(today, -11); else if (st.q === '24m') st.from = addMonths(today, -23); else if (st.q === '60m') st.from = addMonths(today, -59);
+  if (st.q) st.to = today;
+  return st;
 }
 
 // ------------------------------------------------------------------ ANALISI
@@ -427,6 +474,11 @@ function renderAnalisi(v) {
     <section class="card"><h3>Mese per mese</h3>
       <div class="legend"><span><i style="background:${COL.E}"></i>Entrate</span><span><i style="background:${COL.U}"></i>Uscite</span><span class="muted">tocca un mese per i dettagli</span></div>
       <div id="chMesi"></div><div id="meseDett"></div></section>
+
+    <section class="card"><h3>Entrate e uscite nel tempo</h3>
+      <div id="ctlTempo"></div>
+      <div class="legend"><span><i style="background:${COL.E}"></i>Entrate</span><span><i style="background:${COL.U}"></i>Uscite</span><span class="muted">tocca una colonna per i valori</span></div>
+      <div id="chTempo"></div><div id="sumTempo" class="sumline"></div></section>
 
     <section class="card"><div class="h-row"><h3>Preventivo e consuntivo per voce</h3>
       <label class="switch"><input type="checkbox" id="rischio" ${UI.soloRischio ? 'checked' : ''}> solo voci da tenere d'occhio</label></div>
@@ -471,6 +523,31 @@ function renderAnalisi(v) {
       <a href="#movimenti?anno=${y}&mese=${i + 1}&tipo=U&voce=&macro=">Vedi tutti i movimenti di ${MESI_L[i]} →</a></div>`;
   }
   const consuntivoRows = rows => { const mm = new Map(); rows.forEach(m => mm.set(m.voce_id, (mm.get(m.voce_id) || 0) + m.importo)); return mm; };
+
+  // --- entrate/uscite nel tempo, periodo a scelta
+  const minMov = S.movimenti.length ? ym(S.movimenti[S.movimenti.length - 1].data) : ym(todayISO());
+  periodState('pTempo', { g: 'T', q: '24m', from: addMonths(ym(todayISO()), -23), to: ym(todayISO()) });
+  const drawTempo = () => {
+    const st = periodRange('pTempo');
+    const bs = buckets(st.from < minMov ? minMov : st.from, st.to, st.g);
+    const e = bs.map(() => 0), u = bs.map(() => 0);
+    const lo = bs[0]?.start, hi = bs[bs.length - 1]?.end;
+    for (const m of S.movimenti) {
+      if (m.data < lo || m.data > hi) continue;
+      const i = bs.findIndex(b => m.data >= b.start && m.data <= b.end); if (i < 0) continue;
+      (tipoMov(m) === 'E' ? e : u)[i] += m.importo;
+    }
+    columns($('#chTempo'), {
+      labels: bs.map(b => b.label), tipLabels: bs.map(b => b.long + (b.end > todayISO() ? ' (in corso)' : '')), height: 240, fmt: eur0,
+      series: [{ name: 'Entrate', color: COL.E, values: e }, { name: 'Uscite', color: COL.U, values: u }],
+      extra: i => `<div>Saldo: <b>${eur0(e[i] - u[i])}</b></div>`,
+    });
+    const te = sum(e), tu = sum(u), n = bs.length;
+    const eff = bs.length ? `${fmtDate(bs[0].start)} – ${fmtDate(bs[bs.length - 1].end > todayISO() ? todayISO() : bs[bs.length - 1].end)}` : '';
+    $('#sumTempo').innerHTML = `<span class="muted">Dal ${eff}</span><br>Entrate <b class="E">${eur0(te)}</b> · uscite <b class="U">${eur0(tu)}</b> · saldo <b class="${te - tu >= 0 ? 'E' : 'bad'}">${eur0(te - tu)}</b> · uscite medie per ${GRAN.find(x => x[0] === st.g)[1].toLowerCase()} <b>${eur0(tu / Math.max(1, n))}</b>`;
+  };
+  periodControls($('#ctlTempo'), 'pTempo', { min: minMov }, drawTempo);
+  drawTempo();
 
   // --- budget per voce
   const cons = consuntivo(String(y));
@@ -640,74 +717,144 @@ function renderPreventivo(v) {
 }
 
 // ------------------------------------------------------------------ PATRIMONIO
-function snapshots() {
+// Patrimonio: ogni conto vale il suo ultimo saldo noto. I conti disattivati
+// contano solo fino alla loro ultima rilevazione.
+function saldiPerConto() {
   const by = new Map();
-  for (const s of S.saldi) {
-    const c = S.conti.find(x => x.id === s.conto_id); if (!c) continue;
-    const o = by.get(s.data) || { data: s.data, tot: 0, liquidità: 0, risparmio: 0, investimento: 0, n: 0 };
-    o.tot += s.saldo; o[c.tipo] += s.saldo; o.n++;
-    by.set(s.data, o);
-  }
-  return [...by.values()].sort((a, b) => (a.data > b.data ? 1 : -1));
+  for (const s of S.saldi) { if (!by.has(s.conto_id)) by.set(s.conto_id, []); by.get(s.conto_id).push(s); }
+  for (const a of by.values()) a.sort((x, y) => (x.data > y.data ? 1 : -1));
+  return by;
 }
+function statoAl(d, by = saldiPerConto()) {
+  const o = { data: d, tot: 0, liquidità: 0, risparmio: 0, investimento: 0, conti: [] };
+  for (const c of S.conti) {
+    const a = by.get(c.id); if (!a) continue;
+    let last = null;
+    for (const s of a) { if (s.data <= d) last = s; else break; }
+    if (!last) continue;
+    if (!c.attivo && a[a.length - 1].data < d) continue;
+    o.tot += last.saldo; o[c.tipo] += last.saldo; o.conti.push({ c, s: last });
+  }
+  return o;
+}
+function snapshots() {
+  const by = saldiPerConto();
+  const dates = [...new Set(S.saldi.map(s => s.data))].sort();
+  return dates.map(d => statoAl(d, by));
+}
+function giorniDa(d) { return Math.round((new Date(todayISO()) - new Date(d)) / 864e5); }
+
 function renderPatrimonio(v, params) {
   const snaps = snapshots();
-  const last = snaps[snaps.length - 1];
+  const now = statoAl(todayISO());
   const editDate = params.data || null;
+  const stale = now.conti.filter(x => x.c.attivo && giorniDa(x.s.data) > 60);
   v.innerHTML = `
-    <section class="kpis">${last ? `
-      <div class="kpi"><small>Patrimonio al ${fmtDate(last.data)}</small><b>${eur0(last.tot)}</b></div>
-      <div class="kpi"><small>Liquidità (capitale circolante)</small><b>${eur0(last['liquidità'])}</b></div>
-      <div class="kpi"><small>Risparmi</small><b>${eur0(last.risparmio)}</b></div>
-      <div class="kpi"><small>Investimenti / previdenza</small><b>${eur0(last.investimento)}</b></div>` : '<p class="muted">Nessun saldo registrato.</p>'}</section>
-    <section class="card"><h3>Andamento del patrimonio</h3>
-      <div class="seg small" id="pserie"><button data-s="tot" class="on">Totale</button><button data-s="liquidità">Liquidità</button><button data-s="risparmio">Risparmi</button><button data-s="investimento">Investimenti</button></div>
-      <div id="chPat"></div>
-      <p class="muted small">Nota: le rilevazioni fino a inizio 2026 non includono sempre polizza e fondo pensione, quindi il totale può "saltare" quando sono stati aggiunti.</p></section>
+    <section class="kpis">${now.conti.length ? `
+      <div class="kpi"><small>Patrimonio (ultimi saldi noti)</small><b>${eur0(now.tot)}</b><span>${stale.length ? `${stale.length} conti non aggiornati da oltre 2 mesi` : 'tutti i conti aggiornati'}</span></div>
+      <div class="kpi"><small>Liquidità (capitale circolante)</small><b>${eur0(now['liquidità'])}</b></div>
+      <div class="kpi"><small>Risparmi</small><b>${eur0(now.risparmio)}</b></div>
+      <div class="kpi"><small>Investimenti / previdenza</small><b>${eur0(now.investimento)}</b></div>` : '<p class="muted">Nessun saldo registrato.</p>'}</section>
+
+    <section class="card"><h3>Situazione dei conti</h3>
+      <p class="muted small">Per ogni conto vale l'ultimo saldo inserito. Non serve aggiornarli tutti insieme né ogni mese: aggiorna quelli che conosci, quando li conosci.</p>
+      ${['liquidità', 'risparmio', 'investimento'].map(t => {
+        const rows = now.conti.filter(x => x.c.tipo === t);
+        return rows.length ? `<h4>${t[0].toUpperCase() + t.slice(1)}</h4>` + rows.map(x => {
+          const g = giorniDa(x.s.data);
+          return `<div class="crow"><span>${esc(x.c.nome)}${x.c.attivo ? '' : ' <em class="muted">(chiuso)</em>'}</span>
+            <span class="muted small ${g > 60 && x.c.attivo ? 'old' : ''}">${fmtDate(x.s.data)}${g > 60 && x.c.attivo ? ' · da aggiornare' : ''}</span>
+            <b>${eur0(x.s.saldo)}</b></div>`;
+        }).join('') : '';
+      }).join('')}
+    </section>
+
     <section class="card" id="ril"></section>
-    <section class="card"><h3>Rilevazioni</h3><div class="snaps">${[...snaps].reverse().map((s, i, a) => {
-      const p = a[i + 1]; const d = p ? s.tot - p.tot : null;
-      return `<a href="#patrimonio?data=${s.data}" class="snap"><span>${fmtDate(s.data)}</span><span><b>${eur0(s.tot)}</b>${d !== null ? ` <em class="${d >= 0 ? 'E' : 'bad'}">${d >= 0 ? '+' : ''}${eur0(d)}</em>` : ''}</span></a>`;
+
+    <section class="card"><h3>Andamento del patrimonio</h3>
+      <div class="h-row"><span class="muted small">Mostra</span><div class="seg small" id="pserie"><button data-s="tot" class="on">Totale</button><button data-s="liquidità">Liquidità</button><button data-s="risparmio">Risparmi</button><button data-s="investimento">Investimenti</button></div></div>
+      <div id="ctlPat"></div>
+      <div id="chPat"></div><div id="sumPat" class="sumline"></div>
+      <p class="muted small">Ogni punto è il patrimonio a fine periodo, calcolato con l'ultimo saldo noto di ciascun conto a quella data. Polizza e fondo pensione sono registrati solo dal 2026, da qui il salto.</p></section>
+
+    <section class="card"><h3>Storico inserimenti</h3><div class="snaps">${[...snaps].reverse().map(s => {
+      const n = S.saldi.filter(x => x.data === s.data).length;
+      return `<a href="#patrimonio?data=${s.data}" class="snap"><span>${fmtDate(s.data)} <small class="muted">· ${n} ${n === 1 ? 'conto' : 'conti'}</small></span><span><b>${eur0(s.tot)}</b></span></a>`;
     }).join('')}</div></section>`;
+
+  const minSaldo = S.saldi.length ? ym(S.saldi.map(x => x.data).sort()[0]) : ym(todayISO());
+  periodState('pPat', { g: 'T', q: 'all', from: minSaldo, to: ym(todayISO()) });
+  let serie = 'tot';
   const draw = k => {
-    $$('#pserie button').forEach(b => b.classList.toggle('on', b.dataset.s === k));
-    line($('#chPat'), { labels: snaps.map(s => MESI[+s.data.slice(5, 7) - 1] + ' ' + s.data.slice(2, 4)), tipLabels: snaps.map(s => fmtDate(s.data)), values: snaps.map(s => s[k]), color: COL.accent, fmt: eur0, height: 220 });
+    if (k) serie = k;
+    $$('#pserie button').forEach(b => b.classList.toggle('on', b.dataset.s === serie));
+    const st = periodRange('pPat');
+    if (st.q === 'all') st.from = minSaldo;
+    const by = saldiPerConto();
+    const bs = buckets(st.from < minSaldo ? minSaldo : st.from, st.to, st.g)
+      .map(b => ({ ...b, st: statoAl(b.end > todayISO() ? todayISO() : b.end, by) })).filter(b => b.st.conti.length);
+    const vals = bs.map(b => b.st[serie]);
+    line($('#chPat'), {
+      labels: bs.map(b => b.label), values: vals, color: COL.accent, fmt: eur0, height: 230,
+      tipLabels: bs.map((b, i) => `${b.long}${b.end > todayISO() ? ' (ad oggi)' : ''}${i ? `<br><span style="font-weight:400">${vals[i] - vals[i - 1] >= 0 ? '+' : ''}${eur0(vals[i] - vals[i - 1])} sul periodo prima</span>` : ''}`),
+    });
+    $('#sumPat').innerHTML = vals.length > 1 ? `Dal ${fmtDate(bs[0].end)} al ${fmtDate(bs[bs.length - 1].end > todayISO() ? todayISO() : bs[bs.length - 1].end)}: variazione <b class="${vals[vals.length - 1] - vals[0] >= 0 ? 'E' : 'bad'}">${vals[vals.length - 1] - vals[0] >= 0 ? '+' : ''}${eur0(vals[vals.length - 1] - vals[0])}</b> (da ${eur0(vals[0])} a ${eur0(vals[vals.length - 1])})` : '';
   };
+  periodControls($('#ctlPat'), 'pPat', { min: minSaldo }, () => draw());
   draw('tot');
   $('#pserie').onclick = e => { if (e.target.dataset.s) draw(e.target.dataset.s); };
 
-  // form rilevazione
+  // inserimento: solo i campi compilati vengono salvati
   const data = editDate || todayISO();
-  const lastVal = id => { const r = S.saldi.filter(s => s.conto_id === id && s.data <= data).sort((a, b) => (a.data > b.data ? -1 : 1))[0]; return r; };
   const conti = S.conti.filter(c => c.attivo || S.saldi.some(s => s.conto_id === c.id && s.data === data));
+  const exact = id => S.saldi.find(s => s.conto_id === id && s.data === data);
+  const prima = id => { const a = S.saldi.filter(s => s.conto_id === id && s.data < data).sort((x, y) => (x.data > y.data ? -1 : 1)); return a[0]; };
   const tipi = ['liquidità', 'risparmio', 'investimento'];
-  $('#ril').innerHTML = `<h3>${editDate ? 'Modifica rilevazione del ' + fmtDate(editDate) : 'Nuova rilevazione dei saldi'}</h3>
-    <p class="muted small">Inserisci i saldi dei conti a una certa data (es. a inizio mese). I campi sono precompilati con l'ultimo valore noto.</p>
+  $('#ril').innerHTML = `<h3>${editDate ? 'Saldi inseriti il ' + fmtDate(editDate) : 'Aggiorna i saldi'}</h3>
+    <p class="muted small">Compila solo i conti di cui conosci il saldo a questa data; gli altri restano com'erano.</p>
     <label>Data<input type="date" id="sData" value="${data}"></label>
-    ${tipi.map(t => `<h4>${t[0].toUpperCase() + t.slice(1)}</h4>` + conti.filter(c => c.tipo === t).map(c => {
-      const lv = lastVal(c.id);
-      return `<div class="pr2"><span>${esc(c.nome)}${lv && lv.data !== data ? `<small class="muted"> · ultimo ${eur0(lv.saldo)} (${fmtDate(lv.data)})</small>` : ''}</span>
-        <input inputmode="decimal" data-c="${c.id}" value="${lv ? String(lv.saldo).replace('.', ',') : ''}"></div>`;
-    }).join('')).join('')}
-    <div class="pf"><span>Totale</span><b id="sTot"></b></div>
-    <div class="actions"><button class="primary" id="sSave" type="button">Salva rilevazione</button>
-    ${editDate ? '<button id="sNew" type="button">Nuova</button><button class="danger" id="sDel" type="button">Elimina rilevazione</button>' : ''}</div>`;
-  const tot = () => { $('#sTot').textContent = eur0(sum($$('[data-c]'), i => parseAmount(i.value) || 0)); };
-  tot(); $$('[data-c]').forEach(i => i.oninput = tot);
+    ${tipi.map(t => {
+      const cs = conti.filter(c => c.tipo === t);
+      return cs.length ? `<h4>${t[0].toUpperCase() + t.slice(1)}</h4>` + cs.map(c => {
+        const ex = exact(c.id), pr = prima(c.id);
+        return `<div class="pr2"><span>${esc(c.nome)}${pr ? `<small class="muted"> · prima ${eur0(pr.saldo)} (${fmtDate(pr.data)})</small>` : ''}</span>
+          <input inputmode="decimal" data-c="${c.id}" value="${ex ? String(ex.saldo).replace('.', ',') : ''}" placeholder="${pr ? String(pr.saldo).replace('.', ',') : ''}"></div>`;
+      }).join('') : '';
+    }).join('')}
+    <div class="pf"><span>Patrimonio risultante</span><b id="sTot"></b></div>
+    <div class="actions"><button class="primary" id="sSave" type="button">Salva</button>
+    ${editDate ? '<button id="sNew" type="button">Nuovo inserimento</button><button class="danger" id="sDel" type="button">Elimina i saldi di questa data</button>' : ''}</div>`;
+  const tot = () => {
+    const d = $('#sData').value || data;
+    const base = statoAl(d);
+    let t = base.tot;
+    $$('[data-c]').forEach(i => {
+      const val = parseAmount(i.value); if (!isFinite(val)) return;
+      const cur = base.conti.find(x => x.c.id === +i.dataset.c);
+      t += val - (cur ? cur.s.saldo : 0);
+    });
+    $('#sTot').textContent = eur0(t);
+  };
+  tot(); $$('[data-c]').forEach(i => i.oninput = tot); $('#sData').onchange = tot;
   $('#sSave').onclick = () => guard(async () => {
     const d = $('#sData').value; if (!d) return toast('Indica la data');
-    const rows = $$('[data-c]').filter(i => i.value.trim() !== '').map(i => ({ conto_id: +i.dataset.c, data: d, saldo: parseAmount(i.value) }));
+    const filled = $$('[data-c]').filter(i => i.value.trim() !== '');
+    const rows = filled.map(i => ({ conto_id: +i.dataset.c, data: d, saldo: parseAmount(i.value) }));
     if (rows.some(r => !isFinite(r.saldo))) return toast('Controlla gli importi');
-    await api.upsert('saldi', rows);
+    // in modifica: i campi svuotati eliminano il saldo di quella data
+    const svuotati = editDate ? $$('[data-c]').filter(i => i.value.trim() === '' && exact(+i.dataset.c)).map(i => +i.dataset.c) : [];
+    if (!rows.length && !svuotati.length) return toast('Inserisci almeno un saldo');
+    if (rows.length) await api.upsert('saldi', rows);
     rows.forEach(r => { const ex = S.saldi.find(s => s.conto_id === r.conto_id && s.data === r.data); ex ? ex.saldo = r.saldo : S.saldi.push(r); });
-    toast('Rilevazione salvata'); location.hash = '#patrimonio?data=' + d; route();
+    for (const id of svuotati) { await api.remove('saldi', { conto_id: id, data: d }); S.saldi = S.saldi.filter(s => !(s.conto_id === id && s.data === d)); }
+    toast(`Saldi salvati (${rows.length})`); location.hash = '#patrimonio?data=' + d; route();
   });
   if (editDate) {
     $('#sNew').onclick = () => { location.hash = '#patrimonio'; };
     $('#sDel').onclick = () => guard(async () => {
-      if (!confirm(`Eliminare tutti i saldi del ${fmtDate(editDate)}?`)) return;
+      if (!confirm(`Eliminare tutti i saldi inseriti il ${fmtDate(editDate)}?`)) return;
       for (const s of S.saldi.filter(s => s.data === editDate)) await api.remove('saldi', { conto_id: s.conto_id, data: s.data });
-      S.saldi = S.saldi.filter(s => s.data !== editDate); toast('Rilevazione eliminata'); location.hash = '#patrimonio';
+      S.saldi = S.saldi.filter(s => s.data !== editDate); toast('Saldi eliminati'); location.hash = '#patrimonio';
     });
   }
 }
@@ -718,7 +865,8 @@ function renderImpostazioni(v) {
     <section class="card"><h3>Account</h3>
       <p>${api.mode === 'demo' ? 'Modalità prova: i dati restano solo in questo browser.' : `Collegato come <b>${esc(api.user?.email)}</b> (${esc(me())}).`}</p>
       <div class="actions left"><button id="logout" type="button">${api.mode === 'demo' ? 'Esci dalla prova' : 'Esci'}</button>
-      <button id="csvAll" type="button">Esporta tutti i movimenti (CSV)</button></div></section>
+      <button id="csvAll" type="button">Esporta tutti i movimenti (CSV)</button></div>
+      <p class="muted small">Versione app ${VERSIONE} del ${DATA_VERSIONE}</p></section>
 
     <section class="card"><h3>Voci di budget</h3>
       <div class="vlist">${S.macro.map(g => {

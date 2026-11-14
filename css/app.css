@@ -178,3 +178,17 @@ details { margin-bottom: .6rem; } summary { cursor: pointer; color: var(--muted)
 .login { max-width: 400px; margin: 12vh auto; padding: 1rem; }
 .login h1 { font-size: 1.6rem; }
 .login button { width: 100%; min-height: 48px; }
+
+.crow { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.2fr) auto; gap: .6rem; align-items: center; padding: .4rem 0; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.crow em { font-style: normal; font-size: .8rem; }
+.crow .old { color: var(--warn); }
+@media (max-width: 600px) { .crow { grid-template-columns: minmax(0, 1fr) auto; } .crow > span:nth-child(2) { grid-column: 1; grid-row: 2; margin-top: -.3rem; } .crow b { grid-row: 1 / span 2; grid-column: 2; } }
+
+.pctl { display: flex; flex-direction: column; gap: .5rem; margin-bottom: .8rem; }
+.pctl .seg { margin: 0; align-self: flex-start; flex-wrap: wrap; }
+.pctl .chips { margin: 0; }
+.pdates { display: flex; gap: .6rem; }
+.pdates label { margin: 0; flex: 1; max-width: 180px; }
+.pdates input { min-height: 38px !important; padding: .35rem .5rem !important; }
+.sumline { font-size: .88rem; color: var(--muted); margin-top: .5rem; }
+.sumline b { font-variant-numeric: tabular-nums; }
