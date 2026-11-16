@@ -1,11 +1,11 @@
 import { api } from './api.js';
 import { columns, line } from './charts.js';
 
-export const VERSIONE = '1.2';
+export const VERSIONE = '1.3';
 export const DATA_VERSIONE = '14/11/2026';
 
 // ------------------------------------------------------------------ stato
-const S = { macro: [], voci: [], metodi: [], membri: [], movimenti: [], preventivi: [], conti: [], saldi: [] };
+const S = { macro: [], voci: [], metodi: [], membri: [], movimenti: [], preventivi: [], conti: [], saldi: [], scadenze: [], scadenze_fatte: [] };
 const TODAY = new Date();
 const UI = {
   anno: TODAY.getFullYear(),
@@ -93,12 +93,16 @@ function index() {
   S.movimenti.forEach(m => { m.importo = +m.importo; });
   S.preventivi.forEach(p => { p.importo = +p.importo; });
   S.saldi.forEach(s => { s.saldo = +s.saldo; });
+  S.scadenze.forEach(s => { if (s.importo != null) s.importo = +s.importo; });
   S.movimenti.sort((a, b) => (b.data > a.data ? 1 : b.data < a.data ? -1 : b.id - a.id));
 }
 async function loadAll() {
   const t = ['macro', 'voci', 'metodi', 'membri', 'movimenti', 'preventivi', 'conti', 'saldi'];
   const r = await Promise.all(t.map(x => api.all(x)));
   t.forEach((x, i) => { S[x] = r[i]; });
+  // tabelle della 1.3: se lo script SQL non è ancora stato eseguito l'app funziona lo stesso
+  try { [S.scadenze, S.scadenze_fatte] = await Promise.all([api.all('scadenze'), api.all('scadenze_fatte')]); S._scadOk = true; }
+  catch (e) { if (e.auth) throw e; S.scadenze = []; S.scadenze_fatte = []; S._scadOk = false; }
   index();
 }
 
@@ -106,6 +110,7 @@ async function loadAll() {
 const ROUTES = {
   nuovo: { label: 'Nuovo', icon: 'plus', render: renderNuovo },
   movimenti: { label: 'Movimenti', icon: 'list', render: renderMovimenti },
+  scadenze: { label: 'Scadenze', icon: 'calendar', render: renderScadenze },
   analisi: { label: 'Analisi', icon: 'chart', render: renderAnalisi },
   preventivo: { label: 'Preventivo', icon: 'target', render: renderPreventivo },
   patrimonio: { label: 'Patrimonio', icon: 'bank', render: renderPatrimonio },
@@ -116,6 +121,7 @@ const ICONS = {
   list: '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>',
   chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".5"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   bank: '<path d="M3 10h18L12 4 3 10zM5 10v8M9 10v8M15 10v8M19 10v8M3 20h18"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
 };
@@ -232,6 +238,10 @@ function renderNuovo(v, params) {
       ${edit?.voce_originale ? `<small class="muted">Voce nel file Excel originale: ${esc(edit.voce_originale)}</small>` : ''}
     </form>
     ${edit ? '' : '<section class="card"><h3>Ultimi inseriti</h3><div id="recent"></div></section>'}`;
+  if (!edit) {
+    const ev = scadenzeInEvidenza(), late = ev.filter(x => x.d <= todayISO()).length;
+    if (ev.length) v.insertAdjacentHTML('afterbegin', `<a class="card banner ${late ? 'late' : ''}" href="#scadenze">${icon('calendar')}<span><b>${late ? `${late} da gestire` : `${ev.length} in arrivo`}</b> · ${ev.slice(0, 3).map(x => esc(x.s.titolo) + ' ' + fmtDate(x.d).replace(/ \d{4}$/, '')).join(', ')}${ev.length > 3 ? '…' : ''}</span><span class="go">→</span></a>`);
+  }
 
   const paint = () => {
     $$('#tipo button').forEach(b => b.classList.toggle('on', b.dataset.t === st.tipo));
@@ -326,7 +336,7 @@ function movRow(m) {
   const sub = [m.descrizione, m.metodo].filter(Boolean).map(esc).join(' · ');
   return `<a class="mov" href="#nuovo?id=${m.id}">
     <div class="mv-main"><div class="mv-voce">${esc(v?.nome || '?')}</div><div class="mv-sub">${sub}${m.note ? ' · <i>' + esc(m.note) + '</i>' : ''}</div></div>
-    <div class="mv-amt ${t}">${t === 'E' ? '+' : '−'}${eur(m.importo)}</div></a>`;
+    <div class="mv-amt ${t}">${m.creato_da === 'automatico' ? '<span class="pill auto">auto</span> ' : ''}${t === 'E' ? '+' : '−'}${eur(m.importo)}</div></a>`;
 }
 function movList(rows, groupByDay = true) {
   if (!groupByDay) return `<div class="movs">${rows.map(m => `<div class="mv-date">${fmtDate(m.data)}</div>${movRow(m)}`).join('')}</div>`;
@@ -404,6 +414,291 @@ function exportCSV(rows, name) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = `${name}_${todayISO()}.csv`; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// ------------------------------------------------------------------ SCADENZE, APPUNTAMENTI, RICORRENZE
+const pad2 = n => String(n).padStart(2, '0');
+const dISO = (y, m, d) => `${y}-${pad2(m)}-${pad2(d)}`;
+const giorniMese = (y, m) => new Date(y, m, 0).getDate();
+const addDays = (s, n) => iso(new Date(new Date(s + 'T12:00:00').getTime() + n * 864e5));
+const GIORNI = ['lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'];
+const CAT_SCAD = [['casa', 'Casa e condominio'], ['polizza', 'Polizze'], ['auto', 'Auto'], ['documento', 'Documenti'], ['contratto', 'Contratti e abbonamenti'], ['tasse', 'Tasse'], ['figli', 'Figli'], ['salute', 'Salute'], ['altro', 'Altro']];
+const catNome = c => CAT_SCAD.find(x => x[0] === c)?.[1] || 'Altro';
+
+const _fest = {};
+function festivi(y) {
+  if (_fest[y]) return _fest[y];
+  // Pasqua (algoritmo di Meeus) -> Lunedì dell'Angelo
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25),
+    g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4,
+    l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451),
+    mese = Math.floor((h + l - 7 * m + 114) / 31), giorno = ((h + l - 7 * m + 114) % 31) + 1;
+  const pasquetta = iso(new Date(y, mese - 1, giorno + 1)).slice(5);
+  return (_fest[y] = new Set(['01-01', '01-06', '04-25', '05-01', '06-02', '08-15', '11-01', '12-08', '12-25', '12-26', pasquetta]));
+}
+const lavorativo = (y, m, d) => { const wd = new Date(y, m - 1, d).getDay(); return wd > 0 && wd < 6 && !festivi(y).has(`${pad2(m)}-${pad2(d)}`); };
+
+function giornoNelMese(s, y, m) {
+  const dm = giorniMese(y, m);
+  if (s.regola === 'primo_feriale') { for (let d = 1; d <= dm; d++) if (lavorativo(y, m, d)) return d; return null; }
+  if (s.regola === 'ultimo') return dm;
+  if (s.regola === 'nth') {
+    const target = (+s.giorno_sett || 1) % 7; // 1=lun ... 7=dom -> getDay
+    const days = [];
+    for (let d = 1; d <= dm; d++) if (new Date(y, m - 1, d).getDay() === target) days.push(d);
+    return +s.nth === -1 ? days[days.length - 1] : days[(+s.nth || 1) - 1] || null;
+  }
+  return Math.min(+s.data_inizio.slice(8, 10), dm);
+}
+function occorrenze(s, from, to) {
+  const out = [], start = s.data_inizio;
+  const end = s.data_fine && s.data_fine < to ? s.data_fine : to;
+  if (s.freq === 'una') { if (start >= from && start <= end) out.push(start); return out; }
+  if (s.freq === 'settimane') {
+    const step = 7 * (+s.intervallo || 1);
+    let d = start;
+    if (d < from) { const diff = Math.round((new Date(from) - new Date(d)) / 864e5); d = addDays(d, Math.floor(diff / step) * step); }
+    for (; d <= end && out.length < 800; d = addDays(d, step)) if (d >= from && d >= start) out.push(d);
+    return out;
+  }
+  const step = (s.freq === 'anni' ? 12 : 1) * (+s.intervallo || 1);
+  let y = +start.slice(0, 4), m = +start.slice(5, 7);
+  const fy = +from.slice(0, 4), fm = +from.slice(5, 7);
+  const salto = Math.max(0, Math.floor(((fy - y) * 12 + fm - m) / step) - 1);
+  m += salto * step; y += Math.floor((m - 1) / 12); m = ((m - 1) % 12) + 1;
+  while (out.length < 800) {
+    if (dISO(y, m, 1) > end) break;
+    const g = giornoNelMese(s, y, m);
+    if (g) { const d = dISO(y, m, g); if (d > end) break; if (d >= start && d >= from) out.push(d); }
+    m += step; y += Math.floor((m - 1) / 12); m = ((m - 1) % 12) + 1;
+  }
+  return out;
+}
+function descriviRegola(s) {
+  const n = +s.intervallo || 1;
+  if (s.freq === 'una') return 'una volta';
+  if (s.freq === 'settimane') return n === 1 ? 'ogni settimana' : `ogni ${n} settimane`;
+  const ogni = s.freq === 'anni' ? (n === 1 ? 'ogni anno' : `ogni ${n} anni`) : ({ 1: 'ogni mese', 2: 'ogni 2 mesi', 3: 'ogni trimestre', 6: 'ogni semestre', 12: 'ogni anno' }[n] || `ogni ${n} mesi`);
+  const nel = s.freq === 'anni' ? ` di ${MESI_L[+s.data_inizio.slice(5, 7) - 1]}` : '';
+  const quando = s.regola === 'primo_feriale' ? `il primo giorno lavorativo${nel}` : s.regola === 'ultimo' ? `l'ultimo giorno${nel}` :
+    s.regola === 'nth' ? `${+s.nth === -1 ? "l'ultimo" : `il ${s.nth}°`} ${GIORNI[(+s.giorno_sett || 1) - 1]}${nel}` : `il giorno ${+s.data_inizio.slice(8, 10)}${nel}`;
+  return `${ogni}, ${quando}`;
+}
+
+const fatte = id => new Set(S.scadenze_fatte.filter(f => f.scadenza_id === id).map(f => f.data));
+// ricorrenze ancora da gestire, dalla più vecchia (max 13 mesi indietro) fino a "to"
+function daGestire(s, to) {
+  const from = s.data_inizio > addDays(todayISO(), -400) ? s.data_inizio : addDays(todayISO(), -400);
+  const done = fatte(s.id);
+  return occorrenze(s, from, to).filter(d => !done.has(d));
+}
+function prossima(s) { return daGestire(s, addDays(todayISO(), 800)).find(d => d >= todayISO()) || null; }
+
+// Registra i movimenti automatici maturati (e collega quelli già inseriti a mano)
+async function registraAutomatici() {
+  if (!S._scadOk) return 0;
+  let n = 0;
+  for (const s of S.scadenze.filter(x => x.attiva && x.tipo === 'movimento' && x.modalita === 'auto' && x.voce_id && x.importo)) {
+    for (const d of daGestire(s, todayISO())) {
+      const gia = possibiliDoppioni({ data: d, voce_id: s.voce_id, importo: +s.importo, descrizione: '' })
+        .find(m => !S.scadenze_fatte.some(f => f.movimento_id === m.id));
+      try { await api.insert('scadenze_fatte', [{ scadenza_id: s.id, data: d, movimento_id: gia ? gia.id : null }]); }
+      catch { continue; } // già gestita da un altro dispositivo
+      const f = { scadenza_id: s.id, data: d, movimento_id: gia ? gia.id : null };
+      S.scadenze_fatte.push(f);
+      if (gia) continue;
+      const [mv] = await api.insert('movimenti', [{ data: d, voce_id: s.voce_id, importo: +s.importo, descrizione: s.titolo, metodo: s.metodo || null, note: null, creato_da: 'automatico' }]);
+      S.movimenti.push(mv); f.movimento_id = mv.id; n++;
+      await api.update('scadenze_fatte', { scadenza_id: s.id, data: d }, { movimento_id: mv.id });
+    }
+  }
+  if (n) index();
+  return n;
+}
+
+function scadenzeInEvidenza() {
+  if (!S._scadOk) return [];
+  const oggi = todayISO(), out = [];
+  for (const s of S.scadenze.filter(x => x.attiva && !(x.tipo === 'movimento' && x.modalita === 'auto'))) {
+    const limite = addDays(oggi, Math.max(0, +s.preavviso_gg || 0));
+    for (const d of daGestire(s, limite)) {
+      if (s.tipo === 'appuntamento' && d < oggi) continue;
+      out.push({ s, d });
+    }
+  }
+  return out.sort((a, b) => (a.d > b.d ? 1 : -1));
+}
+
+function scadItem(s, d, actions = true) {
+  const oggi = todayISO();
+  const stato = d < oggi ? 'late' : d === oggi ? 'today' : 'soon';
+  const gg = Math.round((new Date(d) - new Date(oggi)) / 864e5);
+  const quando = gg === 0 ? 'oggi' : gg === 1 ? 'domani' : gg === -1 ? 'ieri' : gg < 0 ? `${-gg} giorni fa` : `tra ${gg} giorni`;
+  const imp = s.importo ? `<b class="${voce(s.voce_id)?.tipo === 'E' ? 'E' : 'U'}">${eur(s.importo)}</b>` : '';
+  const sub = [catNome(s.categoria), s.tipo === 'appuntamento' && s.ora ? s.ora.slice(0, 5) : '', s.luogo, descriviRegola(s)].filter(Boolean).map(esc).join(' · ');
+  const btns = !actions ? '' : s.tipo === 'appuntamento' ? `<button type="button" data-done="${s.id}|${d}">Fatto</button>`
+    : s.voce_id ? `<button type="button" class="primary" data-pay="${s.id}|${d}">${s.tipo === 'movimento' ? 'Conferma' : 'Paga'}</button><button type="button" data-skip="${s.id}|${d}">Salta</button>`
+    : `<button type="button" class="primary" data-done="${s.id}|${d}">Fatto</button>`;
+  return `<div class="sitem ${stato}" data-row="${s.id}|${d}">
+    <div class="s-date"><span>${+d.slice(8)}</span><small>${MESI[+d.slice(5, 7) - 1]}</small></div>
+    <div class="s-main"><a href="#scadenze?id=${s.id}">${esc(s.titolo)}</a><div class="mv-sub">${sub}</div><div class="s-when ${stato}">${quando}</div></div>
+    <div class="s-right">${imp}<div class="s-btns">${btns}</div></div></div>`;
+}
+
+function renderScadenze(v, params) {
+  if (!S._scadOk) {
+    v.innerHTML = `<section class="card"><h3>Scadenze non ancora attive</h3><p>Per usare questa sezione esegui una volta su Supabase lo script <code>supabase/v1.3_scadenze.sql</code> (SQL Editor → New query → incolla → Run), poi ricarica l'app.</p></section>`;
+    return;
+  }
+  if (params.id || params.nuovo) return renderScadenzaForm(v, params);
+  const oggi = todayISO();
+  const evid = scadenzeInEvidenza();
+  const daFare = evid.filter(x => x.d <= oggi), presto = evid.filter(x => x.d > oggi);
+  const attive = S.scadenze.filter(s => s.attiva);
+  const auto = attive.filter(s => s.tipo === 'movimento' && s.modalita === 'auto');
+  const futuri = attive.filter(s => !auto.includes(s)).map(s => ({ s, d: prossima(s) })).filter(x => x.d && !evid.some(e => e.s.id === x.s.id && e.d === x.d))
+    .sort((a, b) => (a.d > b.d ? 1 : -1));
+  v.innerHTML = `
+    <div class="actions left" style="margin:0 0 1rem">
+      <a class="btn primary" href="#scadenze?nuovo=scadenza">+ Scadenza</a>
+      <a class="btn" href="#scadenze?nuovo=appuntamento">+ Appuntamento</a>
+      <a class="btn" href="#scadenze?nuovo=movimento">+ Movimento fisso</a></div>
+    <section class="card"><h3>Da fare${daFare.length ? ` <span class="pill bad">${daFare.length}</span>` : ''}</h3>
+      ${daFare.length ? daFare.map(x => scadItem(x.s, x.d)).join('') : '<p class="muted">Niente in ritardo o in scadenza oggi.</p>'}</section>
+    <section class="card"><h3>In arrivo</h3><p class="muted small">Scadenze e appuntamenti entro il preavviso impostato.</p>
+      ${presto.length ? presto.map(x => scadItem(x.s, x.d)).join('') : '<p class="muted">Nulla in arrivo a breve.</p>'}</section>
+    <section class="card"><h3>Movimenti automatici</h3><p class="muted small">Vengono registrati da soli alla data prevista quando l'app viene aperta.</p>
+      ${auto.length ? auto.map(s => { const p = prossima(s); const last = S.scadenze_fatte.filter(f => f.scadenza_id === s.id).sort((a, b) => (a.data > b.data ? -1 : 1))[0];
+        return `<a class="srow" href="#scadenze?id=${s.id}"><div><b>${esc(s.titolo)}</b><div class="mv-sub">${esc(descriviRegola(s))}${last ? ` · ultimo ${fmtDate(last.data)}` : ''}</div></div>
+          <div class="s-right"><b class="U">${eur(s.importo)}</b><div class="mv-sub">${p ? 'prossimo ' + fmtDate(p) : 'terminato'}</div></div></a>`; }).join('')
+        : '<p class="muted">Nessun movimento automatico.</p>'}</section>
+    <section class="card"><h3>Più avanti</h3>
+      ${futuri.length ? futuri.map(x => scadItem(x.s, x.d, false)).join('') : '<p class="muted">Nessuna altra scadenza in programma.</p>'}</section>
+    ${S.scadenze.some(s => !s.attiva) ? `<details class="card"><summary>Disattivate (${S.scadenze.filter(s => !s.attiva).length})</summary>${S.scadenze.filter(s => !s.attiva).map(s => `<a class="srow" href="#scadenze?id=${s.id}"><span>${esc(s.titolo)}</span><span class="muted small">${esc(descriviRegola(s))}</span></a>`).join('')}</details>` : ''}`;
+
+  const key = el => { const [id, d] = el.split('|'); return { s: S.scadenze.find(x => x.id === +id), d }; };
+  $$('[data-pay]', v).forEach(b => b.onclick = () => {
+    const { s, d } = key(b.dataset.pay);
+    const row = b.closest('.sitem');
+    if (row.nextElementSibling?.classList.contains('payform')) { row.nextElementSibling.remove(); return; }
+    const metodi = S.metodi.filter(m => m.attivo || m.nome === s.metodo).map(m => m.nome);
+    row.insertAdjacentHTML('afterend', `<div class="payform">
+      <label>Importo<input inputmode="decimal" class="pf-imp" value="${String(s.importo).replace('.', ',')}"></label>
+      <label>Data<input type="date" class="pf-data" value="${d > todayISO() ? todayISO() : d}"></label>
+      <label>Pagamento<select class="pf-met">${metodi.map(m => `<option ${m === s.metodo ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
+      <button type="button" class="primary pf-ok">Registra ${esc(voce(s.voce_id)?.nome || '')}</button></div>`);
+    const pf = row.nextElementSibling;
+    pf.querySelector('.pf-ok').onclick = () => guard(async () => {
+      const importo = parseAmount(pf.querySelector('.pf-imp').value);
+      if (!isFinite(importo) || !importo) return toast('Importo non valido');
+      try { await api.insert('scadenze_fatte', [{ scadenza_id: s.id, data: d }]); } catch { toast('Già registrata da un altro dispositivo'); return start(); }
+      const [mv] = await api.insert('movimenti', [{ data: pf.querySelector('.pf-data').value, voce_id: s.voce_id, importo, descrizione: s.titolo, metodo: pf.querySelector('.pf-met').value || null, note: null }]);
+      await api.update('scadenze_fatte', { scadenza_id: s.id, data: d }, { movimento_id: mv.id });
+      S.movimenti.push(mv); S.scadenze_fatte.push({ scadenza_id: s.id, data: d, movimento_id: mv.id }); index();
+      toast(`Registrato · ${esc(voce(s.voce_id)?.nome)} ${eur(importo)}`); route();
+    });
+  });
+  const segna = (s, d, msg) => guard(async () => {
+    try { await api.insert('scadenze_fatte', [{ scadenza_id: s.id, data: d }]); } catch { /* già fatta */ }
+    S.scadenze_fatte.push({ scadenza_id: s.id, data: d, movimento_id: null }); toast(msg); route();
+  });
+  $$('[data-skip]', v).forEach(b => b.onclick = () => { const { s, d } = key(b.dataset.skip); if (confirm(`Saltare "${s.titolo}" del ${fmtDate(d)} senza registrare nulla?`)) segna(s, d, 'Saltata'); });
+  $$('[data-done]', v).forEach(b => b.onclick = () => { const { s, d } = key(b.dataset.done); segna(s, d, 'Segnata come fatta'); });
+}
+
+function renderScadenzaForm(v, params) {
+  const ed = params.id ? S.scadenze.find(s => String(s.id) === params.id) : null;
+  if (params.id && !ed) { v.innerHTML = '<p class="muted">Voce non trovata.</p>'; return; }
+  const tipo = ed?.tipo || params.nuovo || 'scadenza';
+  const s = ed ? { ...ed } : { tipo, titolo: '', categoria: tipo === 'movimento' ? 'casa' : 'altro', voce_id: null, importo: null, metodo: tipo === 'movimento' ? 'Addebito diretto c/c' : null,
+    modalita: tipo === 'movimento' ? 'auto' : null, freq: tipo === 'appuntamento' ? 'una' : 'mesi', intervallo: 1, regola: 'giorno', nth: 1, giorno_sett: 1,
+    data_inizio: todayISO(), data_fine: null, ora: null, durata_min: 60, luogo: null, preavviso_gg: tipo === 'movimento' ? 0 : tipo === 'appuntamento' ? 2 : 10, note: null, attiva: true };
+  const titoli = { movimento: 'movimento fisso', scadenza: 'scadenza', appuntamento: 'appuntamento' };
+  const isMov = tipo === 'movimento', isApp = tipo === 'appuntamento';
+  const sel = (arr, val) => arr.map(([k, l]) => `<option value="${k}" ${String(k) === String(val ?? '') ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  v.innerHTML = `<form id="sf" class="card form" autocomplete="off">
+    <h2>${ed ? 'Modifica' : 'Nuovo'} ${titoli[tipo]}</h2>
+    ${isMov ? `<p class="muted small">Un movimento che si ripete sempre uguale (es. mutuo, abbonamenti). In automatico viene registrato da solo; "da confermare" te lo propone e lo confermi tu.</p>` : ''}
+    <label>Titolo<input id="sTit" required value="${esc(s.titolo)}" placeholder="${isMov ? 'es. Rata mutuo' : isApp ? 'es. Visita pediatra Rebecca' : 'es. Rata condominio, Assicurazione casa'}"></label>
+    <div class="row2b">
+      <label>Categoria<select id="sCat">${sel(CAT_SCAD, s.categoria)}</select></label>
+      ${isApp ? '' : `<label>Voce di budget${isMov ? '' : ' (per registrare il pagamento)'}<select id="sVoce"><option value="">${isMov ? 'Scegli…' : 'Nessuna'}</option>${S.macro.map(g => { const vs = S.voci.filter(x => x.macro === g.codice && (x.attiva || x.id === s.voce_id)); return vs.length ? `<optgroup label="${esc(g.nome)}">${vs.map(x => `<option value="${x.id}" ${x.id === s.voce_id ? 'selected' : ''}>${esc(x.nome)}</option>`).join('')}</optgroup>` : ''; }).join('')}</select></label>`}
+    </div>
+    ${isApp ? '' : `<div class="row2b">
+      <label>Importo${isMov ? '' : ' previsto'}<input id="sImp" inputmode="decimal" value="${s.importo != null ? String(s.importo).replace('.', ',') : ''}" placeholder="0,00"></label>
+      <label>Pagamento<select id="sMet"><option value="">—</option>${sel(S.metodi.map(m => [m.nome, m.nome]), s.metodo)}</select></label></div>`}
+    ${isMov ? `<div class="field"><span class="lbl">Modalità</span><div class="seg" id="sMod"><button type="button" data-m="auto">Automatico</button><button type="button" data-m="conferma">Da confermare</button></div></div>` : ''}
+    <h4>Quando</h4>
+    <div class="row2b">
+      <label>Si ripete<select id="sFreq">${sel([['una', 'Una volta'], ['settimane', 'Ogni settimana / N settimane'], ['mesi', 'Ogni mese / N mesi'], ['anni', 'Ogni anno / N anni']], s.freq)}</select></label>
+      <label id="lInt">Ogni quanti<input id="sInt" type="number" min="1" max="60" value="${s.intervallo}"></label></div>
+    <div class="row2b" id="rRegola">
+      <label>Giorno<select id="sReg">${sel([['giorno', 'Stesso giorno della data di inizio'], ['primo_feriale', 'Primo giorno lavorativo'], ['ultimo', 'Ultimo giorno del mese'], ['nth', 'Un giorno della settimana (es. 1° lunedì)']], s.regola)}</select></label>
+      <div class="row2b" id="rNth"><label>Quale<select id="sNth">${sel([[1, '1°'], [2, '2°'], [3, '3°'], [4, '4°'], [-1, 'Ultimo']], s.nth)}</select></label>
+        <label>Giorno<select id="sWd">${sel(GIORNI.map((g, i) => [i + 1, g]), s.giorno_sett)}</select></label></div></div>
+    <div class="row2b">
+      <label><span id="lInizio">${s.freq === 'una' ? 'Data' : 'A partire dal'}</span><input type="date" id="sIni" required value="${s.data_inizio}"></label>
+      <label id="lFine">Fino al (facoltativo)<input type="date" id="sFin" value="${s.data_fine || ''}"></label></div>
+    ${isApp ? `<div class="row2b"><label>Ora<input type="time" id="sOra" value="${s.ora ? s.ora.slice(0, 5) : ''}"></label><label>Durata (minuti)<input type="number" id="sDur" min="0" step="15" value="${s.durata_min || ''}"></label></div>
+      <label>Luogo<input id="sLuogo" value="${esc(s.luogo || '')}"></label>` : ''}
+    ${isMov && s.modalita === 'auto' ? '' : `<label id="lPre">Avvisami quanti giorni prima<input type="number" id="sPre" min="0" max="120" value="${s.preavviso_gg}"></label>`}
+    <div class="preview" id="sPrev"></div>
+    <label>Note<textarea id="sNote" rows="2">${esc(s.note || '')}</textarea></label>
+    ${ed ? `<label class="switch"><input type="checkbox" id="sAtt" ${s.attiva ? 'checked' : ''}> attiva</label>` : ''}
+    <p class="err" id="sErr"></p>
+    <div class="actions"><button class="primary" type="submit">Salva</button>
+      ${ed ? '<button type="button" class="danger" id="sDel">Elimina</button>' : ''}<button type="button" id="sBack">Annulla</button></div>
+  </form>`;
+  const read = () => ({
+    titolo: $('#sTit').value.trim(), categoria: $('#sCat').value, voce_id: $('#sVoce') ? (+$('#sVoce').value || null) : null,
+    importo: $('#sImp') && $('#sImp').value.trim() ? parseAmount($('#sImp').value) : null, metodo: $('#sMet') ? ($('#sMet').value || null) : null,
+    modalita: isMov ? s.modalita : null, freq: $('#sFreq').value, intervallo: Math.max(1, +$('#sInt').value || 1), regola: $('#sReg').value,
+    nth: +$('#sNth').value, giorno_sett: +$('#sWd').value, data_inizio: $('#sIni').value, data_fine: $('#sFin').value || null,
+    ora: $('#sOra') ? ($('#sOra').value || null) : null, durata_min: $('#sDur') ? (+$('#sDur').value || null) : null, luogo: $('#sLuogo') ? ($('#sLuogo').value.trim() || null) : null,
+    preavviso_gg: $('#sPre') ? Math.max(0, +$('#sPre').value || 0) : 0, note: $('#sNote').value.trim() || null, attiva: $('#sAtt') ? $('#sAtt').checked : true,
+  });
+  const upd = () => {
+    const r = read();
+    $$('#sMod button').forEach(b => b.classList.toggle('on', b.dataset.m === s.modalita));
+    $('#lInt').style.display = r.freq === 'una' ? 'none' : '';
+    $('#rRegola').style.display = r.freq === 'mesi' || r.freq === 'anni' ? '' : 'none';
+    $('#rNth').style.display = r.regola === 'nth' ? '' : 'none';
+    $('#lFine').style.display = r.freq === 'una' ? 'none' : '';
+    $('#lInizio').textContent = r.freq === 'una' ? 'Data' : 'A partire dal';
+    if (!r.data_inizio) { $('#sPrev').innerHTML = ''; return; }
+    const prova = { ...r, id: ed?.id ?? -1 };
+    const date = occorrenze(prova, todayISO() < r.data_inizio ? r.data_inizio : todayISO(), addDays(todayISO(), 1500)).slice(0, 4);
+    $('#sPrev').innerHTML = `<b>${esc(descriviRegola(prova))}</b><br>${date.length ? 'Prossime date: ' + date.map(d => `${GIORNI[(new Date(d + 'T12:00').getDay() + 6) % 7].slice(0, 3)} ${fmtDate(d)}`).join(' · ') : 'Nessuna data futura.'}`;
+  };
+  upd();
+  $('#sf').oninput = upd; $('#sf').onchange = upd;
+  const mod = $('#sMod'); if (mod) mod.onclick = e => { if (e.target.dataset.m) { s.modalita = e.target.dataset.m; upd(); } };
+  $('#sBack').onclick = () => { location.hash = '#scadenze'; };
+  $('#sf').onsubmit = e => {
+    e.preventDefault();
+    guard(async () => {
+      const r = read();
+      const err = !r.titolo ? 'Scrivi un titolo' : !r.data_inizio ? 'Indica la data' : isMov && !r.voce_id ? 'Scegli la voce di budget' : isMov && !(r.importo > 0 || r.importo < 0) ? "Indica l'importo"
+        : r.importo !== null && !isFinite(r.importo) ? 'Importo non valido' : r.data_fine && r.data_fine < r.data_inizio ? 'La data di fine è prima di quella di inizio' : '';
+      $('#sErr').textContent = err; if (err) return;
+      r.tipo = tipo;
+      if (!isMov) r.modalita = null;
+      if (r.regola !== 'nth') { r.nth = null; r.giorno_sett = null; }
+      if (ed) {
+        const [x] = await api.update('scadenze', { id: ed.id }, r); Object.assign(ed, x || r);
+      } else {
+        const [x] = await api.insert('scadenze', [r]); S.scadenze.push(x);
+      }
+      const n = await registraAutomatici();
+      toast('Salvato' + (n ? ` · ${n} movimenti registrati` : '')); location.hash = '#scadenze';
+    });
+  };
+  if (ed) $('#sDel').onclick = () => guard(async () => {
+    if (!confirm(`Eliminare "${ed.titolo}"? I movimenti già registrati restano nel budget.`)) return;
+    await api.remove('scadenze', { id: ed.id });
+    S.scadenze = S.scadenze.filter(x => x.id !== ed.id); S.scadenze_fatte = S.scadenze_fatte.filter(f => f.scadenza_id !== ed.id);
+    toast('Eliminato'); location.hash = '#scadenze';
+  });
 }
 
 // ------------------------------------------------------------------ PERIODI (grafici comandabili)
@@ -992,8 +1287,9 @@ async function start() {
   shell();
   if (!S.movimenti.length && !S.voci.length) location.hash = '#impostazioni';
   route();
+  guard(async () => { const n = await registraAutomatici(); if (n) { toast(`Registrati ${n} movimenti automatici`); route(); } });
 }
 window.addEventListener('hashchange', () => { if ($('#view')) route(); });
 let rz, lastW = innerWidth; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (Math.abs(innerWidth - lastW) < 40) return; lastW = innerWidth; if ($('#view') && /analisi/.test($('#view').className)) route(); }, 300); });
-window.BF = { S, parseAmount, api };
+window.BF = { S, parseAmount, api, occorrenze, descriviRegola, festivi };
 start();

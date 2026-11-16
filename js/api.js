@@ -8,8 +8,9 @@ const PAGE = 1000;
 const KEYS = {
   macro: ['codice'], voci: ['id'], metodi: ['nome'], movimenti: ['id'],
   preventivi: ['anno', 'voce_id'], conti: ['id'], saldi: ['conto_id', 'data'], membri: ['email'],
+  scadenze: ['id'], scadenze_fatte: ['scadenza_id', 'data'],
 };
-const IDENTITY = { voci: true, movimenti: true, conti: true };
+const IDENTITY = { voci: true, movimenti: true, conti: true, scadenze: true };
 
 function qs(match) {
   return Object.entries(match).map(([k, v]) => `${encodeURIComponent(k)}=eq.${encodeURIComponent(v)}`).join('&');
@@ -124,6 +125,7 @@ class DemoApi {
     const out = rows.map(r => {
       const x = { ...r };
       if (IDENTITY[table]) { this.db.seq[table] = (this.db.seq[table] || 0) + 1; x.id = this.db.seq[table]; }
+      else if (this.db.t[table].some(y => this._key(table, y) === this._key(table, x))) throw new Error('duplicate key value');
       if (table === 'movimenti') { x.creato_il ||= new Date().toISOString(); x.creato_da ||= this.session?.email; }
       this.db.t[table].push(x); return { ...x };
     });
