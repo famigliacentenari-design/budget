@@ -1,5 +1,18 @@
 # Versioni dell'app Budget famiglia
 
+## 1.4 — 17/11/2026
+- **Google Calendar**: l'app crea il calendario "Famiglia – Scadenze" sull'account Google di famiglia e ci copia
+  scadenze, appuntamenti e movimenti fissi dei prossimi 12 mesi, tenendoli aggiornati.
+- **Notifiche sul telefono** tramite Google Calendar:
+  - movimento fisso automatico (es. mutuo): alle 9:00 del giorno dell'addebito;
+  - movimento da confermare: alle 9:00 del giorno;
+  - scadenze: alle 9:00 del giorno di preavviso e del giorno prima;
+  - appuntamenti: 1 ora prima e alle 9:00 dei giorni di preavviso.
+- Pagato / saltato / fatto → l'evento diventa "✓" e le notifiche si spengono; eliminato → sparisce dal calendario.
+- Sincronizzazione automatica dopo ogni modifica (se l'accesso Google è attivo), altrimenti con il pulsante "Sincronizza".
+- Condivisione del calendario con altri account Google dall'app.
+- Richiede lo script `supabase/v1.4_impostazioni.sql` e la configurazione su Google Cloud (vedi LEGGIMI).
+
 ## 1.3 — 14/11/2026
 - Nuova sezione **Scadenze** (icona calendario nel menu):
   - **Scadenze** con importo (rate condominiali, polizze, bollo…): "Paga" registra il movimento nel budget, "Salta" la ignora.

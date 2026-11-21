@@ -226,3 +226,11 @@ a.btn.primary { background: var(--accent); color: #fff; border-color: var(--acce
 details.card summary { font-weight: 500; }
 @media (prefers-color-scheme: dark) { .banner { background: #2b2210; } .banner.late { background: #2e1515; } .sitem.late .s-date { background: #501313; color: #f7c1c1; } .sitem.today .s-date { background: #412402; color: #fac775; } }
 @media (max-width: 760px) { .tabs a { font-size: .62rem; padding: .3rem .1rem; } .tabs .ic { width: 20px; height: 20px; } }
+
+/* --- 1.4 google calendar --- */
+.gbar { display: flex; align-items: center; gap: .7rem; text-decoration: none; color: var(--text); font-size: .9rem; padding: .6rem .9rem; }
+.gbar .ic { flex: none; color: var(--accent); } .gbar button { margin-left: auto; min-height: 34px; padding: .3rem .8rem; } .gbar .go { margin-left: auto; color: var(--muted); }
+.gbar.warn { border-color: #eda100; background: #fffaf0; } .gbar.warn .ic { color: var(--warn); }
+@media (prefers-color-scheme: dark) { .gbar.warn { background: #2b2210; } }
+.ginfo { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .6rem; margin: .4rem 0 .6rem; }
+.ginfo small { display: block; } .ginfo b { font-weight: 500; word-break: break-all; }

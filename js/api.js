@@ -8,7 +8,7 @@ const PAGE = 1000;
 const KEYS = {
   macro: ['codice'], voci: ['id'], metodi: ['nome'], movimenti: ['id'],
   preventivi: ['anno', 'voce_id'], conti: ['id'], saldi: ['conto_id', 'data'], membri: ['email'],
-  scadenze: ['id'], scadenze_fatte: ['scadenza_id', 'data'],
+  scadenze: ['id'], scadenze_fatte: ['scadenza_id', 'data'], impostazioni: ['chiave'],
 };
 const IDENTITY = { voci: true, movimenti: true, conti: true, scadenze: true };
 

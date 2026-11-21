@@ -1,11 +1,12 @@
 import { api } from './api.js';
 import { columns, line } from './charts.js';
+import { gLogin, gLogout, gTokenValid, gPrimary, gCreateCalendar, gShare, gSync } from './gcal.js';
 
-export const VERSIONE = '1.3';
-export const DATA_VERSIONE = '14/11/2026';
+export const VERSIONE = '1.4';
+export const DATA_VERSIONE = '17/11/2026';
 
 // ------------------------------------------------------------------ stato
-const S = { macro: [], voci: [], metodi: [], membri: [], movimenti: [], preventivi: [], conti: [], saldi: [], scadenze: [], scadenze_fatte: [] };
+const S = { macro: [], voci: [], metodi: [], membri: [], movimenti: [], preventivi: [], conti: [], saldi: [], scadenze: [], scadenze_fatte: [], imp: {} };
 const TODAY = new Date();
 const UI = {
   anno: TODAY.getFullYear(),
@@ -103,6 +104,8 @@ async function loadAll() {
   // tabelle della 1.3: se lo script SQL non è ancora stato eseguito l'app funziona lo stesso
   try { [S.scadenze, S.scadenze_fatte] = await Promise.all([api.all('scadenze'), api.all('scadenze_fatte')]); S._scadOk = true; }
   catch (e) { if (e.auth) throw e; S.scadenze = []; S.scadenze_fatte = []; S._scadOk = false; }
+  try { S.imp = Object.fromEntries((await api.all('impostazioni')).map(r => [r.chiave, r.valore])); S._impOk = true; }
+  catch (e) { if (e.auth) throw e; S.imp = {}; S._impOk = false; }
   index();
 }
 
@@ -558,7 +561,7 @@ function renderScadenze(v, params) {
   const auto = attive.filter(s => s.tipo === 'movimento' && s.modalita === 'auto');
   const futuri = attive.filter(s => !auto.includes(s)).map(s => ({ s, d: prossima(s) })).filter(x => x.d && !evid.some(e => e.s.id === x.s.id && e.d === x.d))
     .sort((a, b) => (a.d > b.d ? 1 : -1));
-  v.innerHTML = `
+  v.innerHTML = `${gcalBar()}
     <div class="actions left" style="margin:0 0 1rem">
       <a class="btn primary" href="#scadenze?nuovo=scadenza">+ Scadenza</a>
       <a class="btn" href="#scadenze?nuovo=appuntamento">+ Appuntamento</a>
@@ -576,6 +579,7 @@ function renderScadenze(v, params) {
       ${futuri.length ? futuri.map(x => scadItem(x.s, x.d, false)).join('') : '<p class="muted">Nessuna altra scadenza in programma.</p>'}</section>
     ${S.scadenze.some(s => !s.attiva) ? `<details class="card"><summary>Disattivate (${S.scadenze.filter(s => !s.attiva).length})</summary>${S.scadenze.filter(s => !s.attiva).map(s => `<a class="srow" href="#scadenze?id=${s.id}"><span>${esc(s.titolo)}</span><span class="muted small">${esc(descriviRegola(s))}</span></a>`).join('')}</details>` : ''}`;
 
+  wireGcalBar(v);
   const key = el => { const [id, d] = el.split('|'); return { s: S.scadenze.find(x => x.id === +id), d }; };
   $$('[data-pay]', v).forEach(b => b.onclick = () => {
     const { s, d } = key(b.dataset.pay);
@@ -595,12 +599,12 @@ function renderScadenze(v, params) {
       const [mv] = await api.insert('movimenti', [{ data: pf.querySelector('.pf-data').value, voce_id: s.voce_id, importo, descrizione: s.titolo, metodo: pf.querySelector('.pf-met').value || null, note: null }]);
       await api.update('scadenze_fatte', { scadenza_id: s.id, data: d }, { movimento_id: mv.id });
       S.movimenti.push(mv); S.scadenze_fatte.push({ scadenza_id: s.id, data: d, movimento_id: mv.id }); index();
-      toast(`Registrato · ${esc(voce(s.voce_id)?.nome)} ${eur(importo)}`); route();
+      toast(`Registrato · ${esc(voce(s.voce_id)?.nome)} ${eur(importo)}`); route(); gcalDopoModifica();
     });
   });
   const segna = (s, d, msg) => guard(async () => {
     try { await api.insert('scadenze_fatte', [{ scadenza_id: s.id, data: d }]); } catch { /* già fatta */ }
-    S.scadenze_fatte.push({ scadenza_id: s.id, data: d, movimento_id: null }); toast(msg); route();
+    S.scadenze_fatte.push({ scadenza_id: s.id, data: d, movimento_id: null }); toast(msg); route(); gcalDopoModifica();
   });
   $$('[data-skip]', v).forEach(b => b.onclick = () => { const { s, d } = key(b.dataset.skip); if (confirm(`Saltare "${s.titolo}" del ${fmtDate(d)} senza registrare nulla?`)) segna(s, d, 'Saltata'); });
   $$('[data-done]', v).forEach(b => b.onclick = () => { const { s, d } = key(b.dataset.done); segna(s, d, 'Segnata come fatta'); });
@@ -690,14 +694,178 @@ function renderScadenzaForm(v, params) {
         const [x] = await api.insert('scadenze', [r]); S.scadenze.push(x);
       }
       const n = await registraAutomatici();
-      toast('Salvato' + (n ? ` · ${n} movimenti registrati` : '')); location.hash = '#scadenze';
+      toast('Salvato' + (n ? ` · ${n} movimenti registrati` : '')); location.hash = '#scadenze'; gcalDopoModifica();
     });
   };
   if (ed) $('#sDel').onclick = () => guard(async () => {
     if (!confirm(`Eliminare "${ed.titolo}"? I movimenti già registrati restano nel budget.`)) return;
     await api.remove('scadenze', { id: ed.id });
     S.scadenze = S.scadenze.filter(x => x.id !== ed.id); S.scadenze_fatte = S.scadenze_fatte.filter(f => f.scadenza_id !== ed.id);
-    toast('Eliminato'); location.hash = '#scadenze';
+    toast('Eliminato'); location.hash = '#scadenze'; gcalDopoModifica();
+  });
+}
+
+// ------------------------------------------------------------------ GOOGLE CALENDAR
+const gcfg = () => S.imp.gcal || {};
+const gcalAttivo = () => !!(S._impOk && S.imp.google_client_id && gcfg().calendarId);
+async function setImp(chiave, valore) {
+  await api.upsert('impostazioni', [{ chiave, valore }]);
+  S.imp[chiave] = valore;
+}
+function hashStr(s) { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
+const hm = t => { const [h, m] = (t || '09:00').split(':').map(Number); return h * 60 + m; };
+const dt = (d, minuti) => `${d}T${pad2(Math.floor(minuti / 60))}:${pad2(minuti % 60)}:00`;
+const clampRem = arr => [...new Set(arr.filter(m => m >= 0 && m <= 40320))].slice(0, 5).map(minutes => ({ method: 'popup', minutes }));
+
+function eventoGoogle(s, d, fatto) {
+  const imp = s.importo ? ` · ${eur(s.importo)}` : '';
+  const vn = voce(s.voce_id)?.nome;
+  const link = `${location.origin}${location.pathname}#scadenze?id=${s.id}`;
+  const p = Math.max(0, +s.preavviso_gg || 0);
+  let summary, start, end, rem = [], colorId;
+  const desc = [];
+  if (s.tipo === 'movimento') {
+    const auto = s.modalita === 'auto';
+    summary = auto ? `${s.titolo}${imp} · addebito automatico` : `Da confermare: ${s.titolo}${imp}`;
+    start = { dateTime: dt(d, 540), timeZone: 'Europe/Rome' }; end = { dateTime: dt(d, 555), timeZone: 'Europe/Rome' };
+    rem = auto || !fatto ? [0] : [];
+    colorId = auto ? '10' : '5';
+    desc.push(auto ? `Registrato automaticamente nel budget${vn ? ` alla voce "${vn}"` : ''}.` : `Da confermare nell'app (sezione Scadenze)${vn ? `, voce "${vn}"` : ''}.`);
+  } else if (s.tipo === 'appuntamento' && s.ora) {
+    const t = hm(s.ora), dur = +s.durata_min || 60;
+    summary = s.titolo;
+    start = { dateTime: dt(d, t), timeZone: 'Europe/Rome' };
+    end = t + dur < 1440 ? { dateTime: dt(d, t + dur), timeZone: 'Europe/Rome' } : { dateTime: dt(d, 1439), timeZone: 'Europe/Rome' };
+    rem = fatto ? [] : [60, ...(p >= 1 ? [p * 1440 + t - 540] : [])];
+    colorId = '9';
+  } else {
+    summary = `${s.tipo === 'scadenza' ? 'Scadenza: ' : ''}${s.titolo}${imp}`;
+    start = { date: d }; end = { date: addDays(d, 1) };
+    rem = fatto ? [] : [900, ...(p >= 1 ? [p * 1440 - 540] : [])]; // 9:00 del giorno prima e del giorno di preavviso
+    colorId = s.tipo === 'appuntamento' ? '9' : '6';
+  }
+  if (fatto) { summary = '✓ ' + summary; if (s.tipo !== 'movimento' || s.modalita !== 'auto') colorId = '8'; }
+  if (s.luogo) desc.push('Luogo: ' + s.luogo);
+  if (s.note) desc.push(s.note);
+  desc.push(descriviRegola(s) + ' · ' + catNome(s.categoria), 'Apri nell\'app: ' + link);
+  const ev = {
+    id: `bf${s.id}d${d.replace(/-/g, '')}`, summary, description: desc.join('\n'), start, end, colorId,
+    location: s.luogo || undefined, transparency: 'transparent',
+    reminders: { useDefault: false, overrides: clampRem(rem) },
+  };
+  ev.extendedProperties = { private: { bf: '1', sid: String(s.id), d, h: hashStr(JSON.stringify(ev)) } };
+  return ev;
+}
+function eventiDesiderati(from, to) {
+  const out = [];
+  for (const s of S.scadenze) {
+    if (!s.attiva) continue;
+    const done = fatte(s.id);
+    for (const d of occorrenze(s, from, to)) out.push(eventoGoogle(s, d, done.has(d)));
+  }
+  return out;
+}
+
+let gcalBusy = false;
+async function gcalSync(interattivo, onProgress) {
+  if (!gcalAttivo() || gcalBusy) return null;
+  const cfg = gcfg();
+  if (!gTokenValid()) {
+    if (!interattivo) { if (!cfg.daSync) await setImp('gcal', { ...cfg, daSync: true }); return null; }
+    await gLogin(S.imp.google_client_id, cfg.account);
+  }
+  gcalBusy = true;
+  try {
+    const from = addDays(todayISO(), -60), to = addDays(todayISO(), 365);
+    const r = await gSync(cfg.calendarId, eventiDesiderati(from, to), from, to, onProgress);
+    await setImp('gcal', { ...gcfg(), ultimaSync: new Date().toISOString(), daSync: false, da: me() });
+    return r;
+  } finally { gcalBusy = false; }
+}
+// dopo ogni modifica: sincronizza subito se l'accesso Google è attivo, altrimenti segna "da sincronizzare"
+function gcalDopoModifica() {
+  if (!gcalAttivo()) return;
+  guard(async () => { const r = await gcalSync(false); if (r && (r.nuovi || r.aggiornati || r.eliminati)) toast('Google Calendar aggiornato'); });
+}
+const fmtQuando = isoTs => { const d = new Date(isoTs); return d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short' }) + ' alle ' + d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }); };
+
+function gcalBar() {
+  if (!gcalAttivo()) return S._impOk && !S.imp.gcal?.calendarId ? `<a class="card gbar" href="#impostazioni">${icon('calendar')}<span>Collega Google Calendar per ricevere le notifiche sul telefono</span><span class="go">→</span></a>` : '';
+  const c = gcfg(), vecchia = !c.ultimaSync || Date.now() - new Date(c.ultimaSync) > 7 * 864e5;
+  return `<div class="card gbar ${c.daSync || vecchia ? 'warn' : ''}">${icon('calendar')}<span>${c.daSync ? '<b>Modifiche da inviare a Google Calendar</b>' : c.ultimaSync ? `Google Calendar aggiornato il ${fmtQuando(c.ultimaSync)}` : 'Google Calendar non ancora sincronizzato'}</span>
+    <button type="button" id="gSyncBar">Sincronizza</button></div>`;
+}
+function wireGcalBar(v) {
+  const b = $('#gSyncBar', v); if (!b) return;
+  b.onclick = () => guard(async () => {
+    b.disabled = true; b.textContent = 'In corso…';
+    try {
+      const r = await gcalSync(true, (n, t) => { b.textContent = `${n}/${t}`; });
+      if (r) toast(`Calendario aggiornato: ${r.nuovi} nuovi, ${r.aggiornati} modificati, ${r.eliminati} tolti`);
+    } finally { route(); }
+  });
+}
+
+function gcalSection() {
+  if (!S._impOk) return `<section class="card"><h3>Google Calendar</h3><p class="muted small">Per attivarlo esegui una volta su Supabase lo script <code>supabase/v1.4_impostazioni.sql</code>, poi ricarica l'app.</p></section>`;
+  const c = gcfg(), cid = S.imp.google_client_id || '';
+  return `<section class="card" id="gcal"><h3>Google Calendar e notifiche</h3>
+    <p class="muted small">Scadenze, appuntamenti e movimenti fissi vengono copiati in un calendario Google "Famiglia – Scadenze", con le notifiche sul telefono. Guida completa nel file LEGGIMI della versione 1.4.</p>
+    <label>ID client Google (da Google Cloud)<input id="gCid" value="${esc(cid)}" placeholder="123456789-abc….apps.googleusercontent.com"></label>
+    ${!cid ? '' : c.calendarId ? `
+      <div class="ginfo"><div><small class="muted">Calendario</small><b>${esc(c.nome || 'Famiglia – Scadenze')}</b></div>
+        <div><small class="muted">Account Google</small><b>${esc(c.account || '—')}</b></div>
+        <div><small class="muted">Ultima sincronizzazione</small><b>${c.ultimaSync ? fmtQuando(c.ultimaSync) + (c.da ? ' (' + esc(c.da) + ')' : '') : 'mai'}</b></div></div>
+      <div class="actions left"><button type="button" class="primary" id="gSync">Sincronizza ora</button><button type="button" id="gOff">Scollega</button></div>
+      <h4>Condividi il calendario</h4>
+      <p class="muted small">Invia l'invito a un account Google (es. quello personale di Simona). Riceverà le notifiche secondo le sue impostazioni per questo calendario.</p>
+      <div class="vrow add"><input id="gMail" type="email" placeholder="email Google"><select id="gRole"><option value="reader">Solo lettura</option><option value="writer">Può modificare</option></select><button type="button" id="gShare">Invia invito</button></div>`
+      : `<div class="actions left"><button type="button" class="primary" id="gConn">Accedi a Google e crea il calendario</button></div>
+         <p class="muted small">Accedi con l'<b>account Google di famiglia</b>. Se compare "Google non ha verificato questa app", scegli Avanzate → Vai a … (non sicura): l'app è la vostra.</p>`}
+    <p class="err" id="gErr"></p></section>`;
+}
+function wireGcal(v) {
+  const sec = $('#gcal', v); if (!sec) return;
+  const err = m => { $('#gErr').textContent = m || ''; };
+  const run = fn => async () => { err(''); try { await fn(); } catch (e) { console.error(e); err(e.message); } };
+  $('#gCid').onchange = run(async () => {
+    const val = $('#gCid').value.trim();
+    if (val && !/\.apps\.googleusercontent\.com$/.test(val)) return err("L'ID client deve finire con .apps.googleusercontent.com");
+    await setImp('google_client_id', val); toast('ID client salvato'); renderImpostazioni(v);
+  });
+  const conn = $('#gConn');
+  if (conn) conn.onclick = run(async () => {
+    conn.disabled = true; conn.textContent = 'Accesso a Google…';
+    try {
+      await gLogin(S.imp.google_client_id);
+      const prim = await gPrimary();
+      conn.textContent = 'Creo il calendario…';
+      const cal = await gCreateCalendar('Famiglia – Scadenze');
+      await setImp('gcal', { calendarId: cal.id, nome: cal.summary, account: prim.id, daSync: true });
+      conn.textContent = 'Copio le scadenze…';
+      const r = await gcalSync(true);
+      toast(`Calendario creato · ${r ? r.nuovi : 0} eventi inseriti`);
+    } finally { renderImpostazioni(v); }
+  });
+  const sy = $('#gSync');
+  if (sy) sy.onclick = run(async () => {
+    sy.disabled = true; sy.textContent = 'In corso…';
+    try {
+      const r = await gcalSync(true, (n, t) => { sy.textContent = `${n}/${t}`; });
+      if (r) toast(`Calendario aggiornato: ${r.nuovi} nuovi, ${r.aggiornati} modificati, ${r.eliminati} tolti`);
+    } finally { renderImpostazioni(v); }
+  });
+  const off = $('#gOff');
+  if (off) off.onclick = run(async () => {
+    if (!confirm("Scollegare Google Calendar? Il calendario e i suoi eventi restano su Google (puoi eliminarli da lì); l'app smette di aggiornarlo.")) return;
+    gLogout(); await setImp('gcal', {}); toast('Google Calendar scollegato'); renderImpostazioni(v);
+  });
+  const sh = $('#gShare');
+  if (sh) sh.onclick = run(async () => {
+    const mail = $('#gMail').value.trim(); if (!/^\S+@\S+\.\S+$/.test(mail)) return err('Scrivi un indirizzo email valido');
+    if (!gTokenValid()) await gLogin(S.imp.google_client_id, gcfg().account);
+    await gShare(gcfg().calendarId, mail, $('#gRole').value);
+    toast('Invito inviato a ' + mail); $('#gMail').value = '';
   });
 }
 
@@ -1184,6 +1352,7 @@ function renderImpostazioni(v) {
       <div class="actions left"><button id="logout" type="button">${api.mode === 'demo' ? 'Esci dalla prova' : 'Esci'}</button>
       <button id="csvAll" type="button">Esporta tutti i movimenti (CSV)</button></div>
       <p class="muted small">Versione app ${VERSIONE} del ${DATA_VERSIONE}</p></section>
+    ${gcalSection()}
 
     <section class="card"><h3>Voci di budget</h3>
       <div class="vlist">${S.macro.map(g => {
@@ -1210,6 +1379,7 @@ function renderImpostazioni(v) {
       <input type="file" id="imp" accept=".json,application/json"><div id="impLog" class="muted small"></div>
       ${api.mode === 'demo' ? '<div class="actions left"><button class="danger" id="demoReset" type="button">Cancella i dati di prova</button></div>' : ''}</section>`;
 
+  wireGcal(v);
   $('#logout').onclick = async () => { await api.logout(); location.hash = ''; start(); };
   $('#csvAll').onclick = () => exportCSV(S.movimenti, 'budget_tutti_i_movimenti');
   const upd = (table, match, patch, apply) => guard(async () => { await api.update(table, match, patch); apply(); index(); toast('Salvato'); });
@@ -1287,9 +1457,9 @@ async function start() {
   shell();
   if (!S.movimenti.length && !S.voci.length) location.hash = '#impostazioni';
   route();
-  guard(async () => { const n = await registraAutomatici(); if (n) { toast(`Registrati ${n} movimenti automatici`); route(); } });
+  guard(async () => { const n = await registraAutomatici(); if (n) { toast(`Registrati ${n} movimenti automatici`); route(); gcalDopoModifica(); } });
 }
 window.addEventListener('hashchange', () => { if ($('#view')) route(); });
 let rz, lastW = innerWidth; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (Math.abs(innerWidth - lastW) < 40) return; lastW = innerWidth; if ($('#view') && /analisi/.test($('#view').className)) route(); }, 300); });
-window.BF = { S, parseAmount, api, occorrenze, descriviRegola, festivi };
+window.BF = { S, parseAmount, api, occorrenze, descriviRegola, festivi, eventiDesiderati };
 start();
