@@ -3,8 +3,8 @@ import { columns, line } from './charts.js';
 import { comprimi, leggiTesto, interpreta } from './ocr.js';
 import { gLogin, gLogout, gTokenValid, gPrimary, gCreateCalendar, gShare, gSync } from './gcal.js';
 
-export const VERSIONE = '1.5';
-export const DATA_VERSIONE = '21/11/2026';
+export const VERSIONE = '1.5.1';
+export const DATA_VERSIONE = '22/11/2026';
 
 // ------------------------------------------------------------------ stato
 const S = { macro: [], voci: [], metodi: [], membri: [], movimenti: [], preventivi: [], conti: [], saldi: [], scadenze: [], scadenze_fatte: [], imp: {} };
@@ -211,7 +211,7 @@ function renderNuovo(v, params) {
     voce_id: edit?.voce_id || null,
     metodo: edit ? edit.metodo : (last.metodo || 'Bancomat'),
     data: edit?.data || todayISO(),
-    foto: null, allegato: edit?.allegato || null, rimuovi: false,
+    foto: null,
   };
   v.innerHTML = `
     <form id="mf" class="card form" autocomplete="off">
@@ -219,8 +219,8 @@ function renderNuovo(v, params) {
       <div class="seg" id="tipo">
         <button type="button" data-t="U">Uscita</button><button type="button" data-t="E">Entrata</button>
       </div>
-      <div class="scan"><label class="btn scanbtn"><input type="file" id="foto" accept="image/*" hidden>${icon('camera')}<span>${edit?.allegato ? 'Sostituisci foto' : 'Foto scontrino'}</span></label>
-        <div id="fotoBox" class="fotobox"></div></div>
+      ${S.imp?.vision_key ? `<div class="scan"><label class="btn scanbtn"><input type="file" id="foto" accept="image/*" capture="environment" hidden>${icon('camera')}<span>Leggi scontrino</span></label>
+        <div id="fotoBox" class="fotobox"></div></div>` : ''}
       <div id="scanInfo"></div>
       <label class="amount"><span>Importo</span>
         <div class="amt-wrap"><input id="imp" inputmode="decimal" placeholder="0,00" value="${edit ? String(edit.importo).replace('.', ',') : ''}" required><span>€</span></div>
@@ -282,25 +282,22 @@ function renderNuovo(v, params) {
   // --- foto dello scontrino
   const paintFoto = async () => {
     const box = $('#fotoBox'); if (!box) return;
-    let url = st.foto?.url || null;
-    if (!url && st.allegato && !st.rimuovi) { try { url = await api.fileUrl(st.allegato); } catch (e) { box.innerHTML = `<small class="muted">${esc(e.message)}</small>`; return; } }
-    box.innerHTML = url ? `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="Foto dello scontrino"></a><button type="button" class="link-x" id="fotoX" aria-label="Togli la foto">✕</button>` : '';
-    const x = $('#fotoX'); if (x) x.onclick = () => { if (st.foto) URL.revokeObjectURL(st.foto.url); st.foto = null; st.rimuovi = true; $('#scanInfo').innerHTML = ''; paintFoto(); };
+    const url = st.foto?.url || null;
+    box.innerHTML = url ? `<img src="${url}" alt="Scontrino letto">` : '';
   };
   paintFoto();
-  $('#foto').onchange = e => guard(async () => {
+  if ($('#foto')) $('#foto').onchange = e => guard(async () => {
     const f = e.target.files[0]; e.target.value = ''; if (!f) return;
     const info = $('#scanInfo');
     info.innerHTML = '<div class="scaninfo">Preparo la foto…</div>';
     const blob = await comprimi(f);
     if (st.foto) URL.revokeObjectURL(st.foto.url);
-    st.foto = { blob, url: URL.createObjectURL(blob) }; st.rimuovi = false; paintFoto();
+    st.foto = { blob, url: URL.createObjectURL(blob) }; paintFoto();
     const key = S.imp?.vision_key;
-    if (!key) { info.innerHTML = `<div class="scaninfo">Foto allegata. Per far leggere importo e data in automatico attiva la lettura in <a href="#impostazioni">Impostazioni</a>.</div>`; return; }
     info.innerHTML = '<div class="scaninfo">Leggo lo scontrino…</div>';
     let r;
     try { r = interpreta(await leggiTesto(blob, key)); }
-    catch (err) { info.innerHTML = `<div class="scaninfo bad">${esc(err.message)} La foto resta allegata: completa i dati a mano.</div>`; return; }
+    catch (err) { info.innerHTML = `<div class="scaninfo bad">${esc(err.message)} Completa i dati a mano.</div>`; return; }
     const letti = [];
     if (r.importo != null) { $('#imp').value = String(r.importo.toFixed(2)).replace('.', ','); letti.push('importo'); }
     if (r.data) { $('#data').value = r.data; letti.push('data'); }
@@ -312,7 +309,7 @@ function renderNuovo(v, params) {
     paint();
     info.innerHTML = letti.length
       ? `<div class="scaninfo ok">Letti: ${letti.join(', ')}. <b>Controlla i dati</b> prima di salvare.</div>`
-      : `<div class="scaninfo bad">Non sono riuscito a leggere i dati: completa a mano (la foto resta allegata).</div>`;
+      : `<div class="scaninfo bad">Non sono riuscito a leggere i dati: completa a mano.</div>`;
     $('#imp').focus();
   });
 
@@ -343,17 +340,9 @@ function renderNuovo(v, params) {
       };
       const btn = $('#mf button[type=submit]'); btn.disabled = true;
       try {
-        let vecchia = null;
-        if (st.foto) {
-          const path = `${row.data.slice(0, 4)}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
-          btn.textContent = 'Carico la foto…';
-          await api.uploadFile(path, st.foto.blob);
-          row.allegato = path; vecchia = edit?.allegato || null;
-        } else if (edit?.allegato && st.rimuovi) { row.allegato = null; vecchia = edit.allegato; }
         if (edit) {
           const [r] = await api.update('movimenti', { id: edit.id }, { ...row, modificato_il: new Date().toISOString() });
           Object.assign(edit, r || row); index();
-          if (vecchia) api.removeFile(vecchia).catch(() => {});
           toast('Modifica salvata'); history.back();
         } else {
           const [r] = await api.insert('movimenti', [row]);
@@ -374,7 +363,6 @@ function renderNuovo(v, params) {
     $('#del').onclick = () => guard(async () => {
       if (!confirm(`Eliminare definitivamente "${voce(edit.voce_id)?.nome} ${eur(edit.importo)}" del ${fmtDate(edit.data)}?`)) return;
       await api.remove('movimenti', { id: edit.id });
-      if (edit.allegato) api.removeFile(edit.allegato).catch(() => {});
       S.movimenti = S.movimenti.filter(m => m.id !== edit.id);
       toast('Movimento eliminato'); history.back();
     });
@@ -389,7 +377,7 @@ function renderNuovo(v, params) {
 
 function movRow(m) {
   const v = voce(m.voce_id), t = v?.tipo || 'U';
-  const sub = (m.allegato ? '📎 ' : '') + [m.descrizione, m.metodo].filter(Boolean).map(esc).join(' · ');
+  const sub = [m.descrizione, m.metodo].filter(Boolean).map(esc).join(' · ');
   return `<a class="mov" href="#nuovo?id=${m.id}">
     <div class="mv-main"><div class="mv-voce">${esc(v?.nome || '?')}</div><div class="mv-sub">${sub}${m.note ? ' · <i>' + esc(m.note) + '</i>' : ''}</div></div>
     <div class="mv-amt ${t}">${m.creato_da === 'automatico' ? '<span class="pill auto">auto</span> ' : ''}${t === 'E' ? '+' : '−'}${eur(m.importo)}</div></a>`;
@@ -812,7 +800,7 @@ function eventoGoogle(s, d, fatto) {
 function eventiDesiderati(from, to) {
   const out = [];
   for (const s of S.scadenze) {
-    if (!s.attiva) continue;
+    if (!s.attiva || s.tipo === 'movimento') continue; // in calendario solo scadenze e appuntamenti
     const done = fatte(s.id);
     for (const d of occorrenze(s, from, to)) out.push(eventoGoogle(s, d, done.has(d)));
   }
@@ -863,7 +851,7 @@ function gcalSection() {
   if (!S._impOk) return `<section class="card"><h3>Google Calendar</h3><p class="muted small">Per attivarlo esegui una volta su Supabase lo script <code>supabase/v1.4_impostazioni.sql</code>, poi ricarica l'app.</p></section>`;
   const c = gcfg(), cid = S.imp.google_client_id || '';
   return `<section class="card" id="gcal"><h3>Google Calendar e notifiche</h3>
-    <p class="muted small">Scadenze, appuntamenti e movimenti fissi vengono copiati in un calendario Google "Famiglia – Scadenze", con le notifiche sul telefono. Guida completa nel file LEGGIMI della versione 1.4.</p>
+    <p class="muted small">Scadenze e appuntamenti vengono copiati in un calendario Google "Famiglia – Scadenze", con le notifiche sul telefono. Guida completa nel file LEGGIMI della versione 1.4.</p>
     <label>ID client Google (da Google Cloud)<input id="gCid" value="${esc(cid)}" placeholder="123456789-abc….apps.googleusercontent.com"></label>
     ${!cid ? '' : c.calendarId ? `
       <div class="ginfo"><div><small class="muted">Calendario</small><b>${esc(c.nome || 'Famiglia – Scadenze')}</b></div>
@@ -954,9 +942,9 @@ function visionSection() {
   if (!S._impOk) return '';
   const k = S.imp.vision_key || '';
   return `<section class="card" id="vis"><h3>Lettura automatica degli scontrini</h3>
-    <p class="muted small">Con la foto dello scontrino l'app compila importo, data, negozio e pagamento. Serve una chiave di Google Cloud Vision (gratis fino a 1.000 foto al mese): guida nel LEGGIMI della versione 1.5.</p>
+    <p class="muted small">Con il pulsante "Leggi scontrino" l'app fotografa lo scontrino e compila importo, data, negozio e pagamento. La foto serve solo per la lettura: non viene salvata né nell'app né nel rullino. Serve una chiave di Google Cloud Vision (gratis fino a 1.000 letture al mese): guida nel LEGGIMI della versione 1.5.</p>
     <label>Chiave API Google Vision<input id="vKey" value="${esc(k)}" placeholder="AIza…" autocomplete="off"></label>
-    <p class="small ${k ? 'ok-t' : 'muted'}">${k ? 'Lettura attiva.' : 'Non attiva: senza chiave la foto viene solo allegata.'}</p></section>`;
+    <p class="small ${k ? 'ok-t' : 'muted'}">${k ? 'Lettura attiva.' : 'Non attiva: il pulsante "Leggi scontrino" comparirà dopo aver inserito la chiave.'}</p></section>`;
 }
 function wireVision(v) {
   const i = $('#vKey', v); if (!i) return;
