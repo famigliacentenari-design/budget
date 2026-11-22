@@ -3,7 +3,7 @@ import { columns, line } from './charts.js';
 import { comprimi, leggiTesto, interpreta } from './ocr.js';
 import { gLogin, gLogout, gTokenValid, gPrimary, gCreateCalendar, gShare, gSync } from './gcal.js';
 
-export const VERSIONE = '1.5.1';
+export const VERSIONE = '1.5.2';
 export const DATA_VERSIONE = '22/11/2026';
 
 // ------------------------------------------------------------------ stato
@@ -304,7 +304,7 @@ function renderNuovo(v, params) {
     if (r.negozio && !$('#desc').value.trim()) { $('#desc').value = r.negozio; letti.push('negozio'); }
     if (r.metodo && S.metodi.some(m => m.nome === r.metodo)) { st.metodo = r.metodo; letti.push('pagamento'); }
     st.tipo = 'U';
-    const sug = suggerisciVoce(r.negozio);
+    const sug = suggerisciVoce(r.negozio, r.articoli);
     if (sug && !st.voce_id) { st.voce_id = sug.id; letti.push('voce'); }
     paint();
     info.innerHTML = letti.length
@@ -912,27 +912,38 @@ function wireGcal(v) {
 
 
 // ------------------------------------------------------------------ SCONTRINI: voce proposta e impostazioni
+// cosa c'è sullo scontrino (vale più del nome del negozio)
+const ARTICOLI = [
+  [/CAPPUCCIN|CAFF[EÈ']|ESPRESSO|BRIOCHE|CORNETTO|CROISSANT|GELATO|APERITIVO|SPRITZ/, 'Tempo Libero'],
+  [/BENZINA|GASOLIO|DIESEL|SELF\s*SERVICE|CARBURANTE|\bGPL\b|METANO/, 'Spese Auto'],
+  [/FARMAC|TICKET|PRESTAZIONE SANITARIA|MEDICINAL/, 'Spese Mediche'],
+  [/COPERTO|PIZZA|PRIMO|SECONDO|MENU/, 'Ristorante'],
+];
 const NEGOZI = [
   [/esselunga|coop|conad|lidl|carrefour|eurospin|aldi|penny|\bpam\b|iper|bennet|tigros|famila|despar|\bmd\b|in's|unes|crai|sigma|supermerc|market/i, 'Supermercato'],
   [/farmacia|parafarm|sanitari|ottica|dentist|medic/i, 'Spese Mediche'],
   [/ristorante|pizzeria|trattoria|osteria|sushi|braceria|mcdonald|burger/i, 'Ristorante'],
   [/\bbar\b|caff|gelat|pasticc/i, 'Tempo Libero'],
-  [/decathlon|piscina|palestra/i, 'Sport e attività ludiche'],
+  [/decathlon|piscina|palestra|ippic|maneggio|equitazione/i, 'Sport e attività ludiche'],
   [/zara|h&m|ovs|primark|calzedonia|coin|benetton/i, 'Shopping'],
 ];
-function suggerisciVoce(negozio) {
-  if (!negozio) return null;
-  const parole = negozio.toLowerCase().split(/[^a-zà-ú0-9]+/).filter(w => w.length >= 3 && !['farmacia', 'bar', 'ristorante', 'pizzeria', 'supermercato', 'negozio', 'store', 'shop', 'punto', 'vendita', 'market', 'spa', 'srl', 'via', 'centro', 'easy', 'the', 'del', 'della', 'dei'].includes(w));
+function suggerisciVoce(negozio, articoli = '') {
+  if (!negozio && !articoli) return null;
+  negozio = negozio || '';
+  const parole = negozio.toLowerCase().split(/[^a-zà-ú0-9]+/).filter(w => w.length >= 3 && !['farmacia', 'bar', 'ristorante', 'pizzeria', 'supermercato', 'negozio', 'store', 'shop', 'punto', 'vendita', 'market', 'spa', 'srl', 'via', 'centro', 'easy', 'the', 'del', 'della', 'dei', 'club', 'snc', 'sas', 'group', 'italia'].includes(w));
   if (parole.length) {
     const c = new Map();
     for (const m of S.movimenti.slice(0, 4000)) {
       const d = (m.descrizione || '').toLowerCase();
-      if (d && parole.some(w => d.includes(w)) && tipoMov(m) === 'U' && voce(m.voce_id)?.attiva) c.set(m.voce_id, (c.get(m.voce_id) || 0) + 1);
+      const hit = parole.filter(w => d.includes(w)).length;
+      if (d && hit >= Math.min(2, parole.length) && tipoMov(m) === 'U' && voce(m.voce_id)?.attiva) c.set(m.voce_id, (c.get(m.voce_id) || 0) + 1);
     }
     const best = [...c.entries()].sort((a, b) => b[1] - a[1])[0];
     if (best && best[1] >= 2) return voce(best[0]);
   }
-  for (const [re, nome] of NEGOZI) if (re.test(negozio)) {
+  const daArticoli = ARTICOLI.find(([re]) => re.test(articoli));
+  const regole = daArticoli ? [daArticoli, ...NEGOZI] : NEGOZI;
+  for (const [re, nome] of regole) if (re.test(negozio) || re === daArticoli?.[0]) {
     const v = S.voci.find(x => x.attiva && x.tipo === 'U' && x.nome.toLowerCase().startsWith(nome.toLowerCase()));
     if (v) return v;
   }
@@ -1549,5 +1560,5 @@ async function start() {
 }
 window.addEventListener('hashchange', () => { if ($('#view')) route(); });
 let rz, lastW = innerWidth; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (Math.abs(innerWidth - lastW) < 40) return; lastW = innerWidth; if ($('#view') && /analisi/.test($('#view').className)) route(); }, 300); });
-window.BF = { suggerisciVoce, S, parseAmount, api, occorrenze, descriviRegola, festivi, eventiDesiderati };
+window.BF = { interpreta, suggerisciVoce, S, parseAmount, api, occorrenze, descriviRegola, festivi, eventiDesiderati };
 start();

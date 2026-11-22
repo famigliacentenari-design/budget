@@ -33,7 +33,7 @@ export async function leggiTesto(blob, apiKey) {
 }
 
 // ---------- interpretazione di uno scontrino italiano ----------
-const RE_IMP = /(?:€\s*)?(-?\d{1,3}(?:[.\s]\d{3})*[,.]\d{2})(?!\d)/g;
+const RE_IMP = /(?:€\s*)?(-?\d{1,3}(?:[.\s]\d{3})*[,.]\d{2})(?![\d%])(?!\s*%)/g;
 const num = s => parseFloat(s.replace(/\s/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
 const importi = riga => [...riga.matchAll(RE_IMP)].map(m => num(m[1])).filter(v => isFinite(v) && v > 0 && v < 100000);
 
@@ -54,7 +54,14 @@ export function interpreta(testo, oggi = new Date()) {
       }
     }
   }
+  // controllo incrociato: il totale di solito compare più volte (totale, pagamento, importo pagato, carta)
+  const freq = new Map();
+  righe.forEach((r, i) => { if (/IVA|IMPONIBILE|RESTO|SCONTO/.test(up[i]) && importi(r).length === 1 && !/TOTALE/.test(up[i])) return; importi(r).forEach(v => freq.set(v, (freq.get(v) || 0) + 1)); });
+  const ripetuti = [...freq.entries()].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1] || b[0] - a[0]);
+  if (ripetuti.length && (out.importo == null || (freq.get(out.importo) || 0) < 2)) out.importo = ripetuti[0][0];
   if (out.importo == null) { const tutti = righe.flatMap(importi); if (tutti.length) out.importo = Math.max(...tutti); }
+  // parole utili a capire la categoria (es. cappuccino, benzina)
+  out.articoli = up.join(' ');
 
   // data: gg/mm/aa(aa) plausibile (non nel futuro, non più vecchia di 2 anni)
   const lim = new Date(oggi); lim.setFullYear(lim.getFullYear() - 2);

@@ -1,5 +1,12 @@
 # Versioni dell'app Budget famiglia
 
+## 1.5.2 — 22/11/2026
+- Lettura scontrini più affidabile: il totale viene confermato cercando l'importo ripetuto
+  (totale, pagamento elettronico, importo pagato, carta); le percentuali IVA (es. 10,00%) non vengono
+  più scambiate per importi. Funziona anche quando i prezzi sono in colonna separata.
+- Voce proposta anche in base a cosa c'è sullo scontrino (es. cappuccino/brioche → Tempo libero,
+  gasolio → Spese auto) e confronto con lo storico più rigoroso (niente parole generiche come "club").
+
 ## 1.5.1 — 22/11/2026
 - Google Calendar: in calendario vanno solo **scadenze e appuntamenti**. I movimenti fissi (es. mutuo)
   non vengono più copiati; quelli già presenti vengono tolti alla prossima sincronizzazione.
