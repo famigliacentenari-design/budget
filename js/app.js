@@ -1,9 +1,10 @@
 import { api } from './api.js';
 import { columns, line } from './charts.js';
+import { comprimi, leggiTesto, interpreta } from './ocr.js';
 import { gLogin, gLogout, gTokenValid, gPrimary, gCreateCalendar, gShare, gSync } from './gcal.js';
 
-export const VERSIONE = '1.4';
-export const DATA_VERSIONE = '17/11/2026';
+export const VERSIONE = '1.5';
+export const DATA_VERSIONE = '21/11/2026';
 
 // ------------------------------------------------------------------ stato
 const S = { macro: [], voci: [], metodi: [], membri: [], movimenti: [], preventivi: [], conti: [], saldi: [], scadenze: [], scadenze_fatte: [], imp: {} };
@@ -124,6 +125,7 @@ const ICONS = {
   list: '<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>',
   chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".5"/>',
+  camera: '<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   bank: '<path d="M3 10h18L12 4 3 10zM5 10v8M9 10v8M15 10v8M19 10v8M3 20h18"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
@@ -209,6 +211,7 @@ function renderNuovo(v, params) {
     voce_id: edit?.voce_id || null,
     metodo: edit ? edit.metodo : (last.metodo || 'Bancomat'),
     data: edit?.data || todayISO(),
+    foto: null,
   };
   v.innerHTML = `
     <form id="mf" class="card form" autocomplete="off">
@@ -216,6 +219,9 @@ function renderNuovo(v, params) {
       <div class="seg" id="tipo">
         <button type="button" data-t="U">Uscita</button><button type="button" data-t="E">Entrata</button>
       </div>
+      ${S.imp?.vision_key ? `<div class="scan"><label class="btn scanbtn"><input type="file" id="foto" accept="image/*" capture="environment" hidden>${icon('camera')}<span>Leggi scontrino</span></label>
+        <div id="fotoBox" class="fotobox"></div></div>` : ''}
+      <div id="scanInfo"></div>
       <label class="amount"><span>Importo</span>
         <div class="amt-wrap"><input id="imp" inputmode="decimal" placeholder="0,00" value="${edit ? String(edit.importo).replace('.', ',') : ''}" required><span>€</span></div>
         <small id="impHint" class="muted">Puoi scrivere anche un calcolo, es. 30,90-15</small>
@@ -273,6 +279,40 @@ function renderNuovo(v, params) {
   };
   if (!edit) setTimeout(() => $('#imp').focus(), 50);
 
+  // --- foto dello scontrino
+  const paintFoto = async () => {
+    const box = $('#fotoBox'); if (!box) return;
+    const url = st.foto?.url || null;
+    box.innerHTML = url ? `<img src="${url}" alt="Scontrino letto">` : '';
+  };
+  paintFoto();
+  if ($('#foto')) $('#foto').onchange = e => guard(async () => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    const info = $('#scanInfo');
+    info.innerHTML = '<div class="scaninfo">Preparo la foto…</div>';
+    const blob = await comprimi(f);
+    if (st.foto) URL.revokeObjectURL(st.foto.url);
+    st.foto = { blob, url: URL.createObjectURL(blob) }; paintFoto();
+    const key = S.imp?.vision_key;
+    info.innerHTML = '<div class="scaninfo">Leggo lo scontrino…</div>';
+    let r;
+    try { r = interpreta(await leggiTesto(blob, key)); }
+    catch (err) { info.innerHTML = `<div class="scaninfo bad">${esc(err.message)} Completa i dati a mano.</div>`; return; }
+    const letti = [];
+    if (r.importo != null) { $('#imp').value = String(r.importo.toFixed(2)).replace('.', ','); letti.push('importo'); }
+    if (r.data) { $('#data').value = r.data; letti.push('data'); }
+    if (r.negozio && !$('#desc').value.trim()) { $('#desc').value = r.negozio; letti.push('negozio'); }
+    if (r.metodo && S.metodi.some(m => m.nome === r.metodo)) { st.metodo = r.metodo; letti.push('pagamento'); }
+    st.tipo = 'U';
+    const sug = suggerisciVoce(r.negozio);
+    if (sug && !st.voce_id) { st.voce_id = sug.id; letti.push('voce'); }
+    paint();
+    info.innerHTML = letti.length
+      ? `<div class="scaninfo ok">Letti: ${letti.join(', ')}. <b>Controlla i dati</b> prima di salvare.</div>`
+      : `<div class="scaninfo bad">Non sono riuscito a leggere i dati: completa a mano.</div>`;
+    $('#imp').focus();
+  });
+
   $('#mf').onsubmit = e => {
     e.preventDefault();
     guard(async () => {
@@ -312,9 +352,10 @@ function renderNuovo(v, params) {
             label: 'Annulla', fn: () => guard(async () => { await api.remove('movimenti', { id: r.id }); S.movimenti = S.movimenti.filter(m => m.id !== r.id); toast('Annullato'); route(); }),
           });
           $('#imp').value = ''; $('#desc').value = ''; $('#note').value = ''; $('#impHint').textContent = '';
+          if (st.foto) URL.revokeObjectURL(st.foto.url); st.foto = null; st.voce_id = null; $('#scanInfo').innerHTML = ''; paintFoto();
           paint(); renderRecent(); $('#imp').focus();
         }
-      } finally { btn.disabled = false; }
+      } finally { btn.disabled = false; btn.textContent = edit ? 'Salva modifiche' : 'Salva'; }
     });
   };
   if (edit) {
@@ -869,6 +910,51 @@ function wireGcal(v) {
   });
 }
 
+
+// ------------------------------------------------------------------ SCONTRINI: voce proposta e impostazioni
+const NEGOZI = [
+  [/esselunga|coop|conad|lidl|carrefour|eurospin|aldi|penny|\bpam\b|iper|bennet|tigros|famila|despar|\bmd\b|in's|unes|crai|sigma|supermerc|market/i, 'Supermercato'],
+  [/farmacia|parafarm|sanitari|ottica|dentist|medic/i, 'Spese Mediche'],
+  [/ristorante|pizzeria|trattoria|osteria|sushi|braceria|mcdonald|burger/i, 'Ristorante'],
+  [/\bbar\b|caff|gelat|pasticc/i, 'Tempo Libero'],
+  [/decathlon|piscina|palestra/i, 'Sport e attività ludiche'],
+  [/zara|h&m|ovs|primark|calzedonia|coin|benetton/i, 'Shopping'],
+];
+function suggerisciVoce(negozio) {
+  if (!negozio) return null;
+  const parole = negozio.toLowerCase().split(/[^a-zà-ú0-9]+/).filter(w => w.length >= 3 && !['farmacia', 'bar', 'ristorante', 'pizzeria', 'supermercato', 'negozio', 'store', 'shop', 'punto', 'vendita', 'market', 'spa', 'srl', 'via', 'centro', 'easy', 'the', 'del', 'della', 'dei'].includes(w));
+  if (parole.length) {
+    const c = new Map();
+    for (const m of S.movimenti.slice(0, 4000)) {
+      const d = (m.descrizione || '').toLowerCase();
+      if (d && parole.some(w => d.includes(w)) && tipoMov(m) === 'U' && voce(m.voce_id)?.attiva) c.set(m.voce_id, (c.get(m.voce_id) || 0) + 1);
+    }
+    const best = [...c.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (best && best[1] >= 2) return voce(best[0]);
+  }
+  for (const [re, nome] of NEGOZI) if (re.test(negozio)) {
+    const v = S.voci.find(x => x.attiva && x.tipo === 'U' && x.nome.toLowerCase().startsWith(nome.toLowerCase()));
+    if (v) return v;
+  }
+  return null;
+}
+function visionSection() {
+  if (!S._impOk) return '';
+  const k = S.imp.vision_key || '';
+  return `<section class="card" id="vis"><h3>Lettura automatica degli scontrini</h3>
+    <p class="muted small">Con il pulsante "Leggi scontrino" l'app fotografa lo scontrino e compila importo, data, negozio e pagamento. La foto serve solo per la lettura: non viene salvata né nell'app né nel rullino. Serve una chiave di Google Cloud Vision (gratis fino a 1.000 letture al mese): guida nel LEGGIMI della versione 1.5.</p>
+    <label>Chiave API Google Vision<input id="vKey" value="${esc(k)}" placeholder="AIza…" autocomplete="off"></label>
+    <p class="small ${k ? 'ok-t' : 'muted'}">${k ? 'Lettura attiva.' : 'Non attiva: il pulsante "Leggi scontrino" comparirà dopo aver inserito la chiave.'}</p></section>`;
+}
+function wireVision(v) {
+  const i = $('#vKey', v); if (!i) return;
+  i.onchange = () => guard(async () => {
+    const val = i.value.trim();
+    if (val && !/^AIza[0-9A-Za-z_-]{30,}$/.test(val)) { toast('La chiave deve iniziare con "AIza…"'); return; }
+    await setImp('vision_key', val); toast(val ? 'Lettura scontrini attivata' : 'Lettura scontrini disattivata'); renderImpostazioni(v);
+  });
+}
+
 // ------------------------------------------------------------------ PERIODI (grafici comandabili)
 const GRAN = [['M', 'Mese'], ['T', 'Trimestre'], ['S', 'Semestre'], ['A', 'Anno'], ['B', 'Biennio']];
 const ym = d => d.slice(0, 7);
@@ -1353,6 +1439,7 @@ function renderImpostazioni(v) {
       <button id="csvAll" type="button">Esporta tutti i movimenti (CSV)</button></div>
       <p class="muted small">Versione app ${VERSIONE} del ${DATA_VERSIONE}</p></section>
     ${gcalSection()}
+    ${visionSection()}
 
     <section class="card"><h3>Voci di budget</h3>
       <div class="vlist">${S.macro.map(g => {
@@ -1380,6 +1467,7 @@ function renderImpostazioni(v) {
       ${api.mode === 'demo' ? '<div class="actions left"><button class="danger" id="demoReset" type="button">Cancella i dati di prova</button></div>' : ''}</section>`;
 
   wireGcal(v);
+  wireVision(v);
   $('#logout').onclick = async () => { await api.logout(); location.hash = ''; start(); };
   $('#csvAll').onclick = () => exportCSV(S.movimenti, 'budget_tutti_i_movimenti');
   const upd = (table, match, patch, apply) => guard(async () => { await api.update(table, match, patch); apply(); index(); toast('Salvato'); });
@@ -1461,5 +1549,5 @@ async function start() {
 }
 window.addEventListener('hashchange', () => { if ($('#view')) route(); });
 let rz, lastW = innerWidth; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (Math.abs(innerWidth - lastW) < 40) return; lastW = innerWidth; if ($('#view') && /analisi/.test($('#view').className)) route(); }, 300); });
-window.BF = { S, parseAmount, api, occorrenze, descriviRegola, festivi, eventiDesiderati };
+window.BF = { suggerisciVoce, S, parseAmount, api, occorrenze, descriviRegola, festivi, eventiDesiderati };
 start();

@@ -98,6 +98,25 @@ class SupabaseApi {
   }
   update(table, match, patch) { return this._rest('PATCH', `${table}?${qs(match)}`, { body: patch, prefer: 'return=representation' }); }
   remove(table, match) { return this._rest('DELETE', `${table}?${qs(match)}`, { prefer: 'return=minimal' }); }
+
+  // ---- foto (Supabase Storage, cartella privata "scontrini")
+  async _storage(method, path, body, ctype) {
+    const headers = { apikey: this.key, Authorization: `Bearer ${await this._token()}` };
+    if (ctype) headers['Content-Type'] = ctype;
+    const r = await net(`${this.url}/storage/v1/${path}`, { method, headers, body });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const m = j.message || j.error || `Errore ${r.status}`;
+      throw new Error(/bucket not found/i.test(m) ? 'Cartella foto non trovata: esegui su Supabase lo script v1.5_scontrini.sql' : 'Foto: ' + m);
+    }
+    return j;
+  }
+  uploadFile(path, blob) { return this._storage('POST', `object/scontrini/${path}`, blob, blob.type || 'image/jpeg'); }
+  async fileUrl(path) {
+    const j = await this._storage('POST', `object/sign/scontrini/${path}`, JSON.stringify({ expiresIn: 3600 }), 'application/json');
+    return `${this.url}/storage/v1${j.signedURL || j.signedUrl}`;
+  }
+  removeFile(path) { return this._storage('DELETE', 'object/scontrini', JSON.stringify({ prefixes: [path] }), 'application/json'); }
 }
 
 // ---------------------------------------------------------------- Prova
@@ -147,6 +166,10 @@ class DemoApi {
   }
   async remove(table, match) { this.db.t[table] = this.db.t[table].filter(r => !this._match(r, match)); this._persist(); }
   reset() { localStorage.removeItem(DEMO_KEY); }
+  // foto in prova: restano solo in memoria (si perdono ricaricando la pagina)
+  async uploadFile(path, blob) { (this.files ||= new Map()).set(path, blob); return { Key: path }; }
+  async fileUrl(path) { const b = this.files?.get(path); if (!b) throw new Error('Foto non disponibile in modalità prova dopo il ricaricamento'); return URL.createObjectURL(b); }
+  async removeFile(path) { this.files?.delete(path); }
 }
 
 export const api = SUPABASE_URL ? new SupabaseApi(SUPABASE_URL, SUPABASE_ANON_KEY) : new DemoApi();

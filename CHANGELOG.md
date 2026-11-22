@@ -1,5 +1,14 @@
 # Versioni dell'app Budget famiglia
 
+## 1.5 — 21/11/2026
+- **Leggi scontrino** nella schermata Nuovo: si apre la fotocamera, l'app legge lo scontrino e compila
+  importo totale, data, negozio e metodo di pagamento; propone la voce in base al negozio
+  (es. Esselunga → Supermercato, farmacia → Spese mediche, oppure come l'avete registrato in passato).
+- La foto serve **solo per la lettura**: non viene salvata nell'app né nel database, e non finisce nel rullino.
+- Lettura con Google Cloud Vision: chiave da inserire in Impostazioni → "Lettura automatica degli scontrini".
+  Il pulsante compare solo dopo aver inserito la chiave.
+- Nessuno script obbligatorio su Supabase.
+
 ## 1.4 — 17/11/2026
 - **Google Calendar**: l'app crea il calendario "Famiglia – Scadenze" sull'account Google di famiglia e ci copia
   scadenze, appuntamenti e movimenti fissi dei prossimi 12 mesi, tenendoli aggiornati.
