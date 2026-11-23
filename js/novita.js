@@ -1,0 +1,31 @@
+// Novità mostrate nell'app dopo ogni aggiornamento (la più recente in cima).
+// Ad ogni nuova versione si aggiunge una voce qui.
+export const NOVITA = [
+  { v: '1.5.3', data: '23/11/2026', voci: [
+    'Dopo ogni aggiornamento compare questo riquadro con le novità della versione.',
+    'Puoi rivedere tutte le novità da Impostazioni → "Novità delle versioni".',
+  ] },
+  { v: '1.5.2', data: '22/11/2026', voci: [
+    'Lettura scontrini più precisa: il totale viene riconosciuto anche quando i prezzi sono in colonna e le percentuali IVA non vengono più scambiate per importi.',
+    'Voce proposta anche da cosa c\'è sullo scontrino (cappuccino → Tempo libero, gasolio → Spese auto, farmaci → Spese mediche).',
+  ] },
+  { v: '1.5.1', data: '22/11/2026', voci: [
+    'In Google Calendar finiscono solo scadenze e appuntamenti: i movimenti fissi (es. mutuo) non vengono più copiati.',
+  ] },
+  { v: '1.5', data: '21/11/2026', voci: [
+    'Nuovo pulsante "Leggi scontrino": fotografi lo scontrino e l\'app compila importo, data, negozio, pagamento e voce.',
+    'La foto serve solo per la lettura: non viene salvata né nell\'app né nel rullino.',
+  ] },
+  { v: '1.4', data: '17/11/2026', voci: [
+    'Collegamento a Google Calendar con il calendario "Famiglia – Scadenze" e le notifiche sul telefono.',
+  ] },
+  { v: '1.3', data: '14/11/2026', voci: [
+    'Nuova sezione Scadenze: scadenze da pagare, appuntamenti e movimenti fissi.',
+    'Mutuo registrato in automatico il primo giorno lavorativo del mese.',
+  ] },
+  { v: '1.2', data: '14/11/2026', voci: ['Avviso quando stai inserendo una spesa già presente nello stesso mese.'] },
+  { v: '1.1', data: '14/11/2026', voci: [
+    'Grafici con periodo a scelta (mese, trimestre, semestre, anno, biennio).',
+    'Patrimonio aggiornabile conto per conto, quando vuoi.',
+  ] },
+];

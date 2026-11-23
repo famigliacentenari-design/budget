@@ -1,5 +1,9 @@
 # Versioni dell'app Budget famiglia
 
+## 1.5.3 — 23/11/2026
+- Riquadro **Novità** al primo avvio dopo ogni aggiornamento (su ogni dispositivo), con le modifiche
+  delle versioni non ancora viste. Si riapre da Impostazioni → "Novità delle versioni".
+
 ## 1.5.2 — 22/11/2026
 - Lettura scontrini più affidabile: il totale viene confermato cercando l'importo ripetuto
   (totale, pagamento elettronico, importo pagato, carta); le percentuali IVA (es. 10,00%) non vengono

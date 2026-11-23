@@ -246,3 +246,11 @@ details.card summary { font-weight: 500; }
 .scaninfo.ok { background: #e1f5ee; color: #085041; } .scaninfo.bad { background: #faeeda; color: #633806; }
 @media (prefers-color-scheme: dark) { .scaninfo.ok { background: #04342c; color: #9fe1cb; } .scaninfo.bad { background: #412402; color: #fac775; } }
 .ok-t { color: var(--E); }
+
+/* --- 1.5.3 novità --- */
+.novita { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; padding: 1rem; }
+.nov-card { background: var(--surface); color: var(--text); border-radius: 16px; padding: 1.2rem 1.3rem; width: 100%; max-width: 460px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,.3); }
+.nov-body { overflow: auto; margin: .2rem 0 1rem; }
+.nov-body h4 { margin-top: .8rem; }
+.nov-body ul { margin: .2rem 0 0; padding-left: 1.2rem; } .nov-body li { margin-bottom: .35rem; font-size: .95rem; }
+.nov-card .primary { min-height: 46px; }

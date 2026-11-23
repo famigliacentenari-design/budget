@@ -1,10 +1,11 @@
 import { api } from './api.js';
 import { columns, line } from './charts.js';
+import { NOVITA } from './novita.js';
 import { comprimi, leggiTesto, interpreta } from './ocr.js';
 import { gLogin, gLogout, gTokenValid, gPrimary, gCreateCalendar, gShare, gSync } from './gcal.js';
 
-export const VERSIONE = '1.5.2';
-export const DATA_VERSIONE = '22/11/2026';
+export const VERSIONE = '1.5.3';
+export const DATA_VERSIONE = '23/11/2026';
 
 // ------------------------------------------------------------------ stato
 const S = { macro: [], voci: [], metodi: [], membri: [], movimenti: [], preventivi: [], conti: [], saldi: [], scadenze: [], scadenze_fatte: [], imp: {} };
@@ -966,6 +967,35 @@ function wireVision(v) {
   });
 }
 
+
+// ------------------------------------------------------------------ NOVITÀ
+// Al primo avvio dopo un aggiornamento mostra le novità delle versioni non ancora viste (su questo dispositivo)
+function confrontaVersioni(a, b) {
+  const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; }
+  return 0;
+}
+function mostraNovita(tutte) {
+  const vista = store.get('versioneVista', null);
+  if (!tutte && vista === VERSIONE) return;
+  // primo utilizzo su questo dispositivo: mostra solo l'ultima versione
+  const elenco = tutte ? NOVITA : vista ? NOVITA.filter(n => confrontaVersioni(n.v, vista) > 0) : NOVITA.slice(0, 1);
+  store.set('versioneVista', VERSIONE);
+  if (!elenco.length) return;
+  document.querySelector('.novita')?.remove();
+  const el = document.createElement('div');
+  el.className = 'novita';
+  el.innerHTML = `<div class="nov-card" role="dialog" aria-modal="true" aria-labelledby="novT">
+    <h2 id="novT">${tutte ? 'Novità delle versioni' : `Novità della versione ${esc(VERSIONE)}`}</h2>
+    <div class="nov-body">${elenco.map(n => `<section><h4>Versione ${esc(n.v)} · ${esc(n.data)}</h4><ul>${n.voci.map(x => `<li>${esc(x)}</li>`).join('')}</ul></section>`).join('')}</div>
+    <button type="button" class="primary" id="novOk">Ho capito</button></div>`;
+  document.body.appendChild(el);
+  const chiudi = () => el.remove();
+  el.querySelector('#novOk').onclick = chiudi;
+  el.onclick = e => { if (e.target === el) chiudi(); };
+  el.querySelector('#novOk').focus();
+}
+
 // ------------------------------------------------------------------ PERIODI (grafici comandabili)
 const GRAN = [['M', 'Mese'], ['T', 'Trimestre'], ['S', 'Semestre'], ['A', 'Anno'], ['B', 'Biennio']];
 const ym = d => d.slice(0, 7);
@@ -1448,7 +1478,7 @@ function renderImpostazioni(v) {
       <p>${api.mode === 'demo' ? 'Modalità prova: i dati restano solo in questo browser.' : `Collegato come <b>${esc(api.user?.email)}</b> (${esc(me())}).`}</p>
       <div class="actions left"><button id="logout" type="button">${api.mode === 'demo' ? 'Esci dalla prova' : 'Esci'}</button>
       <button id="csvAll" type="button">Esporta tutti i movimenti (CSV)</button></div>
-      <p class="muted small">Versione app ${VERSIONE} del ${DATA_VERSIONE}</p></section>
+      <p class="muted small">Versione app ${VERSIONE} del ${DATA_VERSIONE} · <a href="#" id="novLink">Novità delle versioni</a></p></section>
     ${gcalSection()}
     ${visionSection()}
 
@@ -1479,6 +1509,7 @@ function renderImpostazioni(v) {
 
   wireGcal(v);
   wireVision(v);
+  $('#novLink').onclick = e => { e.preventDefault(); mostraNovita(true); };
   $('#logout').onclick = async () => { await api.logout(); location.hash = ''; start(); };
   $('#csvAll').onclick = () => exportCSV(S.movimenti, 'budget_tutti_i_movimenti');
   const upd = (table, match, patch, apply) => guard(async () => { await api.update(table, match, patch); apply(); index(); toast('Salvato'); });
@@ -1556,6 +1587,7 @@ async function start() {
   shell();
   if (!S.movimenti.length && !S.voci.length) location.hash = '#impostazioni';
   route();
+  mostraNovita(false);
   guard(async () => { const n = await registraAutomatici(); if (n) { toast(`Registrati ${n} movimenti automatici`); route(); gcalDopoModifica(); } });
 }
 window.addEventListener('hashchange', () => { if ($('#view')) route(); });
