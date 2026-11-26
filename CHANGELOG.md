@@ -1,5 +1,8 @@
 # Versioni dell'app Budget famiglia
 
+## 1.6.2 — 26/11/2026
+- Stipendio: media del netto calcolata su tutte le mensilità inserite, 13ª e 14ª comprese.
+
 ## 1.6.1 — 26/11/2026
 - Stipendio: tolta la media mensile della trasferta.
 

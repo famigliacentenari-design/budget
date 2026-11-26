@@ -1,6 +1,7 @@
 // Novità mostrate nell'app dopo ogni aggiornamento (la più recente in cima).
 // Ad ogni nuova versione si aggiunge una voce qui.
 export const NOVITA = [
+  { v: '1.6.2', data: '26/11/2026', voci: ['Stipendio: la media del netto ora comprende tutte le mensilità inserite, 13ª e 14ª incluse.'] },
   { v: '1.6.1', data: '26/11/2026', voci: ['Stipendio: tolta la media della trasferta, resta solo la media mensile del netto.'] },
   { v: '1.6', data: '26/11/2026', voci: [
     'Nuova sezione Stipendio (visibile solo all\'account autorizzato): inserimento mese per mese, tabella annuale con totali e confronto con l\'anno precedente, grafici e storico dal 2013.',
