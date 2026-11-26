@@ -1,6 +1,13 @@
 // Novità mostrate nell'app dopo ogni aggiornamento (la più recente in cima).
 // Ad ogni nuova versione si aggiunge una voce qui.
 export const NOVITA = [
+  { v: '1.5.5', data: '25/11/2026', voci: [
+    'Date più visibili: nell\'elenco dei movimenti e negli "Ultimi inseriti" ogni giorno ha un\'intestazione colorata, che resta in alto mentre scorri.',
+  ] },
+  { v: '1.5.4', data: '25/11/2026', voci: [
+    'Per sicurezza l\'accesso vale solo per la giornata: ogni giorno l\'app chiede di nuovo email e password.',
+    'Aggiornamenti automatici: quando c\'è una versione nuova l\'app si ricarica da sola, anche sul telefono.',
+  ] },
   { v: '1.5.3', data: '23/11/2026', voci: [
     'Dopo ogni aggiornamento compare questo riquadro con le novità della versione.',
     'Puoi rivedere tutte le novità da Impostazioni → "Novità delle versioni".',

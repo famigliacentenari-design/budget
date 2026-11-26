@@ -16,6 +16,8 @@ function qs(match) {
   return Object.entries(match).map(([k, v]) => `${encodeURIComponent(k)}=eq.${encodeURIComponent(v)}`).join('&');
 }
 
+const oggi = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
+
 async function net(url, opts) {
   try { return await fetch(url, opts); }
   catch { throw new Error('Impossibile collegarsi al database: controlla la connessione internet (o l\'indirizzo in config.js).'); }
@@ -28,6 +30,8 @@ class SupabaseApi {
     this.url = url.replace(/\/$/, '');
     this.key = key;
     try { this.session = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { this.session = null; }
+    // l'accesso vale solo per il giorno in cui è stato fatto
+    if (this.session && localStorage.getItem(SESSION_KEY + '.giorno') !== oggi()) this._save(null);
   }
   get user() { return this.session?.user ? { email: this.session.user.email } : null; }
 
@@ -51,6 +55,7 @@ class SupabaseApi {
 
   async login(email, password) {
     this._save(await this._auth('token?grant_type=password', { email, password }));
+    try { localStorage.setItem(SESSION_KEY + '.giorno', oggi()); } catch {}
     return this.user;
   }
 
@@ -61,6 +66,7 @@ class SupabaseApi {
   }
 
   async _token() {
+    if (this.session && localStorage.getItem(SESSION_KEY + '.giorno') !== oggi()) this._save(null);
     if (!this.session) throw Object.assign(new Error('Sessione scaduta: accedi di nuovo'), { auth: true });
     const now = Math.floor(Date.now() / 1000);
     if ((this.session.expires_at || 0) - now < 60) {

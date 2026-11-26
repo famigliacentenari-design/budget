@@ -4,8 +4,8 @@ import { NOVITA } from './novita.js';
 import { comprimi, leggiTesto, interpreta } from './ocr.js';
 import { gLogin, gLogout, gTokenValid, gPrimary, gCreateCalendar, gShare, gSync } from './gcal.js';
 
-export const VERSIONE = '1.5.3';
-export const DATA_VERSIONE = '23/11/2026';
+export const VERSIONE = '1.5.5';
+export const DATA_VERSIONE = '25/11/2026';
 
 // ------------------------------------------------------------------ stato
 const S = { macro: [], voci: [], metodi: [], membri: [], movimenti: [], preventivi: [], conti: [], saldi: [], scadenze: [], scadenze_fatte: [], imp: {} };
@@ -968,6 +968,20 @@ function wireVision(v) {
 }
 
 
+// ------------------------------------------------------------------ AGGIORNAMENTO AUTOMATICO
+// se online c'è una versione più recente, ricarica la pagina scavalcando la cache del telefono
+async function controllaAggiornamento() {
+  try {
+    const t = await (await fetch('js/novita.js?t=' + Date.now(), { cache: 'no-store' })).text();
+    const v = (t.match(/v:\s*'([\d.]+)'/) || [])[1];
+    if (v && confrontaVersioni(v, VERSIONE) > 0 && sessionStorage.getItem('bf.ricarica') !== v) {
+      sessionStorage.setItem('bf.ricarica', v);
+      location.replace(location.pathname + '?v=' + v + location.hash);
+    }
+  } catch {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { if (api.mode !== 'demo' && !api.user) start(); else controllaAggiornamento(); } });
+
 // ------------------------------------------------------------------ NOVITÀ
 // Al primo avvio dopo un aggiornamento mostra le novità delle versioni non ancora viste (su questo dispositivo)
 function confrontaVersioni(a, b) {
@@ -1588,6 +1602,7 @@ async function start() {
   if (!S.movimenti.length && !S.voci.length) location.hash = '#impostazioni';
   route();
   mostraNovita(false);
+  controllaAggiornamento();
   guard(async () => { const n = await registraAutomatici(); if (n) { toast(`Registrati ${n} movimenti automatici`); route(); gcalDopoModifica(); } });
 }
 window.addEventListener('hashchange', () => { if ($('#view')) route(); });
