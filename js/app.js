@@ -4,11 +4,11 @@ import { NOVITA } from './novita.js';
 import { comprimi, leggiTesto, interpreta } from './ocr.js';
 import { gLogin, gLogout, gTokenValid, gPrimary, gCreateCalendar, gShare, gSync } from './gcal.js';
 
-export const VERSIONE = '1.5.5';
-export const DATA_VERSIONE = '25/11/2026';
+export const VERSIONE = '1.6';
+export const DATA_VERSIONE = '26/11/2026';
 
 // ------------------------------------------------------------------ stato
-const S = { macro: [], voci: [], metodi: [], membri: [], movimenti: [], preventivi: [], conti: [], saldi: [], scadenze: [], scadenze_fatte: [], imp: {} };
+const S = { macro: [], voci: [], metodi: [], membri: [], movimenti: [], preventivi: [], conti: [], saldi: [], scadenze: [], scadenze_fatte: [], imp: {}, stipendio: [] };
 const TODAY = new Date();
 const UI = {
   anno: TODAY.getFullYear(),
@@ -106,6 +106,9 @@ async function loadAll() {
   // tabelle della 1.3: se lo script SQL non è ancora stato eseguito l'app funziona lo stesso
   try { [S.scadenze, S.scadenze_fatte] = await Promise.all([api.all('scadenze'), api.all('scadenze_fatte')]); S._scadOk = true; }
   catch (e) { if (e.auth) throw e; S.scadenze = []; S.scadenze_fatte = []; S._scadOk = false; }
+  // sezione privata: il database restituisce i dati solo all'account autorizzato
+  try { S._stip = (await api.all('stipendio_accesso')).length > 0; S.stipendio = S._stip ? (await api.all('stipendio')).map(r => { for (const k of ['trasferta', 'premi', 'lordo', 'rimborso', 'netto', 'vettura']) if (r[k] != null) r[k] = +r[k]; return r; }) : []; }
+  catch (e) { if (e.auth) throw e; S._stip = false; S.stipendio = []; }
   try { S.imp = Object.fromEntries((await api.all('impostazioni')).map(r => [r.chiave, r.valore])); S._impOk = true; }
   catch (e) { if (e.auth) throw e; S.imp = {}; S._impOk = false; }
   index();
@@ -119,6 +122,7 @@ const ROUTES = {
   analisi: { label: 'Analisi', icon: 'chart', render: renderAnalisi },
   preventivo: { label: 'Preventivo', icon: 'target', render: renderPreventivo },
   patrimonio: { label: 'Patrimonio', icon: 'bank', render: renderPatrimonio },
+  stipendio: { label: 'Stipendio', icon: 'wallet', render: renderStipendio, privata: true },
   impostazioni: { label: 'Impostazioni', icon: 'gear', render: renderImpostazioni, hidden: true },
 };
 const ICONS = {
@@ -127,6 +131,7 @@ const ICONS = {
   chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".5"/>',
   camera: '<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/>',
+  wallet: '<path d="M3 7a2 2 0 0 1 2-2h12v4"/><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M16 13.5h2"/>',
   calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   bank: '<path d="M3 10h18L12 4 3 10zM5 10v8M9 10v8M15 10v8M19 10v8M3 20h18"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
@@ -137,7 +142,7 @@ function shell() {
   document.body.innerHTML = `
     <header class="top">
       <div class="brand">Budget famiglia${api.mode === 'demo' ? ' <span class="pill warn">prova</span>' : ''}</div>
-      <nav class="tabs">${Object.entries(ROUTES).filter(([, r]) => !r.hidden).map(([k, r]) => `<a href="#${k}" data-r="${k}">${icon(r.icon)}<span>${r.label}</span></a>`).join('')}</nav>
+      <nav class="tabs">${Object.entries(ROUTES).filter(([, r]) => !r.hidden && (!r.privata || S._stip)).map(([k, r]) => `<a href="#${k}" data-r="${k}">${icon(r.icon)}<span>${r.label}</span></a>`).join('')}</nav>
       <a class="gear" href="#impostazioni" aria-label="Impostazioni">${icon('gear')}</a>
     </header>
     <main id="view"></main>
@@ -1008,6 +1013,82 @@ function mostraNovita(tutte) {
   el.querySelector('#novOk').onclick = chiudi;
   el.onclick = e => { if (e.target === el) chiudi(); };
   el.querySelector('#novOk').focus();
+}
+
+// ------------------------------------------------------------------ STIPENDIO (privato, solo per l'account autorizzato)
+const PERIODI = [...MESI_L.map(m => m[0].toUpperCase() + m.slice(1)), '13ª', '14ª'];
+const CAMPI = [['trasferta', 'Trasferta'], ['premi', 'Premi'], ['lordo', 'Lordo'], ['rimborso', 'Rimborso'], ['netto', 'Netto'], ['vettura', 'Vettura']];
+const nsr = r => r && r.netto != null ? r.netto - (r.rimborso || 0) : null;
+const stipAnno = y => { const m = new Map(); S.stipendio.filter(r => r.anno === y).forEach(r => m.set(r.mese, r)); return m; };
+const eurN = v => v == null ? '—' : eur0(v);
+
+function renderStipendio(v, params) {
+  if (!S._stip) { v.innerHTML = '<p class="muted">Sezione non disponibile per questo account.</p>'; return; }
+  if (params.mese) return renderStipendioForm(v, params);
+  const anni = [...new Set([TODAY.getFullYear(), ...S.stipendio.map(r => r.anno)])].sort((a, b) => b - a);
+  const y = UI.stipAnno || anni[0]; UI.stipAnno = y;
+  const cur = stipAnno(y), prev = stipAnno(y - 1);
+  const somma = (map, f, soloMesi) => sum([...map.values()].filter(r => !soloMesi || r.mese <= 12), f);
+  const mesiCon = [...cur.values()].filter(r => r.mese <= 12 && r.netto != null);
+  const totN = somma(cur, nsr), totP = sum([...prev.values()].filter(r => cur.has(r.mese)), nsr);
+  const mediaN = mesiCon.length ? sum(mesiCon, nsr) / mesiCon.length : 0;
+  const mediaT = mesiCon.length ? sum(mesiCon, r => r.trasferta) / mesiCon.length : 0;
+  v.innerHTML = `
+    <div class="yearbar"><label>Anno <select id="stA">${anni.map(a => `<option ${a === y ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
+      <span class="muted small">🔒 visibile solo a questo account</span>
+      <a class="btn primary" href="#stipendio?mese=nuovo">+ Inserisci mese</a></div>
+    <section class="kpis">
+      <div class="kpi"><small>Netto senza rimborso ${y}</small><b>${eur0(totN)}</b><span>${totP ? `${totN >= totP ? '+' : ''}${eur0(totN - totP)} vs ${y - 1} (stessi mesi)` : ''}</span></div>
+      <div class="kpi"><small>Media mensile netto s/r</small><b>${eur0(mediaN)}</b><span>${mesiCon.length} mesi, escluse 13ª e 14ª</span></div>
+      <div class="kpi"><small>Lordo ${y}</small><b>${eur0(somma(cur, r => r.lordo))}</b><span>premi ${eur0(somma(cur, r => r.premi))}</span></div>
+      <div class="kpi"><small>Media mensile trasferta</small><b>${eur0(mediaT)}</b><span>totale ${eur0(somma(cur, r => r.trasferta))}</span></div>
+    </section>
+    <section class="card"><h3>Netto senza rimborso: ${y} e ${y - 1}</h3>
+      <div class="legend"><span><i style="background:${COL.accent}"></i>${y}</span><span><i style="background:${COL.prev}"></i>${y - 1}</span></div>
+      <div id="chSt"></div></section>
+    <section class="card"><h3>Dettaglio ${y}</h3><p class="muted small">Tocca una riga per modificarla.</p>
+      <div class="stab"><table><thead><tr><th></th>${CAMPI.map(c => `<th>${c[1]}</th>`).join('')}<th>Netto s/r</th><th>vs ${y - 1}</th></tr></thead><tbody>
+      ${PERIODI.map((p, i) => { const r = cur.get(i + 1), q = prev.get(i + 1); const d = r && q && nsr(r) != null && nsr(q) != null ? nsr(r) - nsr(q) : null;
+        return `<tr data-m="${i + 1}" class="${r ? '' : 'vuoto'}"><th>${p}</th>${CAMPI.map(c => `<td>${r ? eurN(r[c[0]]) : ''}</td>`).join('')}<td><b>${r ? eurN(nsr(r)) : ''}</b></td><td class="${d == null ? '' : d >= 0 ? 'E' : 'bad'}">${d == null ? '' : (d >= 0 ? '+' : '') + eur0(d)}</td></tr>`; }).join('')}
+      </tbody><tfoot><tr><th>Totale</th>${CAMPI.map(c => `<td>${eur0(somma(cur, r => r[c[0]]))}</td>`).join('')}<td><b>${eur0(totN)}</b></td><td class="${totN - totP >= 0 ? 'E' : 'bad'}">${totP ? (totN - totP >= 0 ? '+' : '') + eur0(totN - totP) : ''}</td></tr></tfoot></table></div></section>
+    <section class="card"><h3>Netto annuo negli anni</h3><p class="muted small">Netto senza rimborso, 13ª e 14ª comprese.</p><div id="chStY"></div></section>`;
+  $('#stA').onchange = e => { UI.stipAnno = +e.target.value; renderStipendio(v, {}); };
+  $$('.stab tbody tr', v).forEach(tr => tr.onclick = () => { location.hash = `#stipendio?mese=${tr.dataset.m}&anno=${y}`; });
+  columns($('#chSt'), { labels: [...MESI, '13ª', '14ª'], tipLabels: PERIODI, height: 220, fmt: eur0,
+    series: [{ name: String(y), color: COL.accent, values: PERIODI.map((_, i) => nsr(cur.get(i + 1)) || 0) }, { name: String(y - 1), color: COL.prev, values: PERIODI.map((_, i) => nsr(prev.get(i + 1)) || 0) }] });
+  const ya = [...anni].sort((a, b) => a - b);
+  line($('#chStY'), { labels: ya.map(String), values: ya.map(a => sum(S.stipendio.filter(r => r.anno === a), nsr)), color: COL.E, fmt: eur0, height: 220,
+    tipLabels: ya.map(a => a === TODAY.getFullYear() ? `${a} (in corso)` : String(a)) });
+}
+
+function renderStipendioForm(v, params) {
+  const y = +(params.anno || UI.stipAnno || TODAY.getFullYear());
+  let m = params.mese === 'nuovo' ? null : +params.mese;
+  if (!m) { const fatti = stipAnno(y); m = [...Array(14)].map((_, i) => i + 1).find(i => !fatti.has(i)) || 1; }
+  const r = S.stipendio.find(x => x.anno === y && x.mese === m);
+  const p = S.stipendio.find(x => x.anno === y && x.mese === (m === 1 ? 12 : m - 1)) || S.stipendio.find(x => x.anno === y - 1 && x.mese === 12);
+  v.innerHTML = `<form id="stf" class="card form" autocomplete="off"><h2>Stipendio</h2>
+    <div class="row2b"><label>Anno<input id="fA" type="number" value="${y}"></label>
+      <label>Mese<select id="fM">${PERIODI.map((x, i) => `<option value="${i + 1}" ${i + 1 === m ? 'selected' : ''}>${x}</option>`).join('')}</select></label></div>
+    ${CAMPI.map(([k, l]) => `<label>${l}<input inputmode="decimal" data-k="${k}" value="${r && r[k] != null ? String(r[k]).replace('.', ',') : ''}" placeholder="${!r && p && p[k] != null && (k === 'trasferta' || k === 'vettura') ? String(p[k]).replace('.', ',') : ''}"></label>`).join('')}
+    <p class="muted small" id="fNsr"></p><p class="err" id="fErr"></p>
+    <div class="actions"><button class="primary" type="submit">Salva</button>${r ? '<button type="button" class="danger" id="fDel">Elimina</button>' : ''}<button type="button" id="fBack">Annulla</button></div></form>`;
+  const calc = () => { const n = parseAmount($('[data-k=netto]').value), rb = parseAmount($('[data-k=rimborso]').value) || 0; $('#fNsr').textContent = isFinite(n) ? `Netto senza rimborso: ${eur(n - rb)}` : ''; };
+  calc(); $('#stf').oninput = calc;
+  $('#fM').onchange = () => { location.hash = `#stipendio?mese=${$('#fM').value}&anno=${$('#fA').value}`; };
+  $('#fBack').onclick = () => { location.hash = '#stipendio'; };
+  $('#stf').onsubmit = e => { e.preventDefault(); guard(async () => {
+    const row = { anno: +$('#fA').value, mese: +$('#fM').value };
+    for (const [k] of CAMPI) { const s = $(`[data-k=${k}]`).value.trim(); const n = s ? parseAmount(s) : null; if (s && !isFinite(n)) { $('#fErr').textContent = 'Controlla gli importi'; return; } row[k] = n; }
+    if (row.netto == null) { $('#fErr').textContent = 'Inserisci almeno il netto'; return; }
+    await api.upsert('stipendio', [row]);
+    S.stipendio = S.stipendio.filter(x => !(x.anno === row.anno && x.mese === row.mese)).concat(row);
+    UI.stipAnno = row.anno; toast('Salvato'); location.hash = '#stipendio';
+  }); };
+  if (r) $('#fDel').onclick = () => guard(async () => {
+    if (!confirm(`Eliminare ${PERIODI[m - 1]} ${y}?`)) return;
+    await api.remove('stipendio', { anno: y, mese: m }); S.stipendio = S.stipendio.filter(x => x !== r); toast('Eliminato'); location.hash = '#stipendio';
+  });
 }
 
 // ------------------------------------------------------------------ PERIODI (grafici comandabili)

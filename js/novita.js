@@ -1,6 +1,9 @@
 // Novità mostrate nell'app dopo ogni aggiornamento (la più recente in cima).
 // Ad ogni nuova versione si aggiunge una voce qui.
 export const NOVITA = [
+  { v: '1.6', data: '26/11/2026', voci: [
+    'Nuova sezione Stipendio (visibile solo all\'account autorizzato): inserimento mese per mese, tabella annuale con totali e confronto con l\'anno precedente, grafici e storico dal 2013.',
+  ] },
   { v: '1.5.5', data: '25/11/2026', voci: [
     'Date più visibili: nell\'elenco dei movimenti e negli "Ultimi inseriti" ogni giorno ha un\'intestazione colorata, che resta in alto mentre scorri.',
   ] },
