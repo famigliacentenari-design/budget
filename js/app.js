@@ -4,7 +4,7 @@ import { NOVITA } from './novita.js';
 import { comprimi, leggiTesto, interpreta } from './ocr.js';
 import { gLogin, gLogout, gTokenValid, gPrimary, gCreateCalendar, gShare, gSync } from './gcal.js';
 
-export const VERSIONE = '1.6';
+export const VERSIONE = '1.6.1';
 export const DATA_VERSIONE = '26/11/2026';
 
 // ------------------------------------------------------------------ stato
@@ -1032,7 +1032,6 @@ function renderStipendio(v, params) {
   const mesiCon = [...cur.values()].filter(r => r.mese <= 12 && r.netto != null);
   const totN = somma(cur, nsr), totP = sum([...prev.values()].filter(r => cur.has(r.mese)), nsr);
   const mediaN = mesiCon.length ? sum(mesiCon, nsr) / mesiCon.length : 0;
-  const mediaT = mesiCon.length ? sum(mesiCon, r => r.trasferta) / mesiCon.length : 0;
   v.innerHTML = `
     <div class="yearbar"><label>Anno <select id="stA">${anni.map(a => `<option ${a === y ? 'selected' : ''}>${a}</option>`).join('')}</select></label>
       <span class="muted small">🔒 visibile solo a questo account</span>
@@ -1041,7 +1040,6 @@ function renderStipendio(v, params) {
       <div class="kpi"><small>Netto senza rimborso ${y}</small><b>${eur0(totN)}</b><span>${totP ? `${totN >= totP ? '+' : ''}${eur0(totN - totP)} vs ${y - 1} (stessi mesi)` : ''}</span></div>
       <div class="kpi"><small>Media mensile netto s/r</small><b>${eur0(mediaN)}</b><span>${mesiCon.length} mesi, escluse 13ª e 14ª</span></div>
       <div class="kpi"><small>Lordo ${y}</small><b>${eur0(somma(cur, r => r.lordo))}</b><span>premi ${eur0(somma(cur, r => r.premi))}</span></div>
-      <div class="kpi"><small>Media mensile trasferta</small><b>${eur0(mediaT)}</b><span>totale ${eur0(somma(cur, r => r.trasferta))}</span></div>
     </section>
     <section class="card"><h3>Netto senza rimborso: ${y} e ${y - 1}</h3>
       <div class="legend"><span><i style="background:${COL.accent}"></i>${y}</span><span><i style="background:${COL.prev}"></i>${y - 1}</span></div>

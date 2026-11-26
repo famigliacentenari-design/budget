@@ -1,5 +1,8 @@
 # Versioni dell'app Budget famiglia
 
+## 1.6.1 — 26/11/2026
+- Stipendio: tolta la media mensile della trasferta.
+
 ## 1.6 — 26/11/2026
 - Nuova sezione **Stipendio**, visibile solo all'account autorizzato (regola nel database): inserimento mensile (12 mesi + 13ª e 14ª), tabella annuale con totali, netto senza rimborso e confronto con l'anno precedente, medie mensili (escluse 13ª/14ª), grafici mese per mese e annuale. Indipendente dal resto dell'app.
 
